@@ -592,7 +592,7 @@ app.post('/api/packages/:name/versions', requireAuth, async (c) => {
     let tomlData: FinnToml;
     try {
       tomlData = TOML.parse(finn_toml_content) as unknown as FinnToml;
-    } catch (parseError) {
+    } catch {
       return c.json({ error: 'Invalid TOML format in finn_toml_content' }, 400);
     }
 

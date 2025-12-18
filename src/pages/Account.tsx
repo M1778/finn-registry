@@ -76,7 +76,7 @@ export default function Account() {
         const error = await response.json()
         alert(error.error || 'Failed to publish version')
       }
-    } catch (err) {
+    } catch {
       alert('Network error')
     }
     setIsPublishing(false)
