@@ -33,7 +33,7 @@ jobs:
       - name: Run TypeScript type check
         run: npm run typecheck
 
-       - name: Run tests
+      - name: Run tests
         run: npm run test
 
       - name: Upload build artifacts
