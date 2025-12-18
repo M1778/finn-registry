@@ -7,6 +7,7 @@
 		"dev": "vite",
 		"build": "tsc -b && vite build",
 		"build:worker": "esbuild worker/index.ts --bundle --outfile=dist/worker.js --format=esm --platform=node",
+		"deploy": "npm run build && npm run build:worker",
 		"lint": "eslint .",
 		"test": "vitest run",
 		"test:watch": "vitest",
