@@ -84,7 +84,7 @@ The official package registry for the **Fin programming language**. A modern, fa
 The project is configured for automatic deployment via Cloudflare Pages:
 
 1. Connect this GitHub repo to Cloudflare Pages
-2. Set project name to `finn-registry` (you can add custom domain later)
+2. Set project name to `registry` (for URL: `https://registry.fin-lang.workers.dev`)
 3. Set build command: `npm run build`
 4. Set build output: `dist`
 5. Deploy!
@@ -98,7 +98,7 @@ Deploy the worker manually through Cloudflare Workers dashboard:
 4. Set environment variables:
    - `GITHUB_CLIENT_ID`
    - `GITHUB_CLIENT_SECRET`
-   - `APP_URL` = `https://finn-registry.pages.dev`
+   - `APP_URL` = `https://registry.fin-lang.workers.dev`
    - `finn_db` = Your D1 database ID
 
 5. Set up routing to proxy API calls (`/api/*`) to your worker

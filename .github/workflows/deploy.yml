@@ -100,7 +100,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: finn-registry
+          projectName: registry
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
@@ -110,7 +110,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Pages URL:** https://finn-registry.pages.dev" >> $GITHUB_STEP_SUMMARY
+          echo "- **Pages URL:** https://registry.fin-lang.workers.dev" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Next Steps:" >> $GITHUB_STEP_SUMMARY
           echo "1. Deploy worker manually to Cloudflare Workers dashboard" >> $GITHUB_STEP_SUMMARY
