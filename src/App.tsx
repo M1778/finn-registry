@@ -9,7 +9,7 @@ import Login from './pages/Login'
 import UserProfile from './pages/UserProfile'
 import PublishPackage from './pages/PublishPackage'
 import { Terminal, Github, BookOpen, LogIn } from 'lucide-react'
-
+// Meaningfool comment
 function Navbar() {
   const { user, isAuthenticated, isLoading } = useAuth()
 
