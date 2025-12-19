@@ -128,8 +128,17 @@ app.use('/api/*', authMiddleware);
 app.get('/api/auth/github', async (c) => {
   const clientId = c.env.GITHUB_CLIENT_ID;
   const redirectUri = `${c.env.APP_URL}/api/auth/callback`;
+
+  console.log('OAuth Debug:', { clientId, redirectUri, appUrl: c.env.APP_URL });
+
+  // For local development with dummy credentials, redirect to login with error
+  if (clientId === 'dummy_client_id' || !clientId) {
+    console.log('Using dummy OAuth credentials - redirecting to login with error');
+    return c.redirect('/?error=oauth_disabled_local');
+  }
+
   const state = generateToken(16);
-  
+
   // Store state in cookie for CSRF protection
   setCookie(c, 'oauth_state', state, {
     httpOnly: true,
@@ -145,6 +154,7 @@ app.get('/api/auth/github', async (c) => {
   authUrl.searchParams.set('scope', 'user:email');
   authUrl.searchParams.set('state', state);
 
+  console.log('Redirecting to GitHub OAuth:', authUrl.toString());
   return c.redirect(authUrl.toString());
 });
 

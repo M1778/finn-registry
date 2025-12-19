@@ -27,6 +27,8 @@ export default function Login() {
         return 'Failed to create your account. Please try again.'
       case 'oauth_error':
         return 'An unexpected error occurred during authentication.'
+      case 'oauth_disabled_local':
+        return 'GitHub OAuth is disabled in local development. Set up real GitHub OAuth credentials to enable authentication.'
       default:
         return null
     }
