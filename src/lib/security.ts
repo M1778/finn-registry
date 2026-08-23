@@ -1,4 +1,3 @@
-import { SignJWT, jwtVerify } from "jose";
 import { getDb } from "./db";
 import { sessions } from "./db/schema";
 import { eq } from "drizzle-orm";
@@ -8,17 +7,22 @@ import { eq } from "drizzle-orm";
  *
  * Everything here runs on the Cloudflare Workers runtime (ADR-0005), which is
  * `workerd`, not Node. There are no `node:crypto` imports: randomness comes from
- * WebCrypto's `crypto.getRandomValues`, and JWT signing comes from `jose`, which
- * is built on `crypto.subtle`. Both are available as globals on `workerd` and on
- * Node 18+, so the same code runs under vitest.
+ * WebCrypto's `crypto.getRandomValues`, a global on `workerd` and on Node 18+,
+ * so the same code runs under vitest.
+ *
+ * A session is a row, and that is the only way to authenticate. There was also a
+ * signed-token path here: it verified an HS256 JWT and handed the decoded payload
+ * back as the caller's identity — no database read, no shape check — against a key
+ * that fell back to the literal `"default_secret"` whenever `JWT_SECRET` was
+ * unset. Nothing in this codebase ever issued such a token, so the only way to
+ * present one was to forge it. It is gone. A row can be revoked by deleting it;
+ * a signed token cannot be revoked at all.
  *
  * There is no password or API-key hashing left to do. The CLI never
  * authenticates (contract §2.6), so `api_keys` and `auth_codes` are gone, and
  * with them the per-request `scryptSync` scan that could not fit in the 10 ms
  * CPU budget.
  */
-
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "default_secret");
 
 const HEX = "0123456789abcdef";
 
@@ -35,29 +39,6 @@ export function generateRandomString(length: number = 32): string {
   }
 
   return out;
-}
-
-/**
- * Generate JWT
- */
-export async function generateToken(payload: Record<string, unknown>) {
-  return await new SignJWT(payload)
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("30d")
-    .sign(JWT_SECRET);
-}
-
-/**
- * Verify JWT
- */
-export async function verifyToken(token: string) {
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    return payload;
-  } catch {
-    return null;
-  }
 }
 
 /**

@@ -1,7 +1,7 @@
 # Copy to `.dev.vars` for local development. `.dev.vars` is gitignored; this file
 # is the checked-in list of what has to be set, so keep the two in step.
 #
-# Only GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET / JWT_SECRET are secrets. In
+# Only GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are secrets. In
 # production they are set with `wrangler secret put`, never in wrangler.jsonc,
 # which is committed.
 
@@ -11,10 +11,6 @@
 # <APP_URL>/api/auth/github/callback.
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
-
-# Signs the legacy JWT the API still accepts alongside session rows. Any long
-# random string; `openssl rand -base64 48` is fine.
-JWT_SECRET=
 
 # Where this instance is reachable. Used to build the OAuth callback, so it has
 # to match the GitHub app exactly, port included.

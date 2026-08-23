@@ -12,7 +12,6 @@ import {
 import { eq, like, or, desc, asc, sql, and, inArray, type SQL } from "drizzle-orm";
 import { rateLimit } from "@/lib/rate-limit";
 import {
-  verifyToken,
   createSession,
   verifySession,
   deleteSession,
@@ -152,7 +151,7 @@ function sqliteNow(): string {
 interface AuthenticatedUser {
   id: string;
   login: string;
-  /** Present only for a session sign-in; a bare JWT carries no GitHub grant. */
+  /** Read from the session row, never from anything the caller supplied. */
   githubAccessToken?: string | null;
   githubScope?: string | null;
 }
@@ -160,10 +159,17 @@ interface AuthenticatedUser {
 /**
  * Resolve the signed-in web user, if any.
  *
- * Session cookie or JWT only. There is no API-key branch: it loaded every row of
+ * A session token and nothing else. Every field of the returned principal comes
+ * from the `sessions` row and the `users` row it points at, so a caller cannot
+ * assert who they are — only present a token the register issued.
+ *
+ * Two other branches used to be here. The API-key branch loaded every row of
  * `api_keys` and ran `scryptSync` against each one on every authenticated
  * request, which on its own can exceed the whole 10 ms CPU budget (ADR-0005),
- * and the table it scanned is gone (§2.6).
+ * and the table it scanned is gone (§2.6). The JWT branch verified a signature
+ * and then returned the token's own claims as the caller's identity, including
+ * `id` and `githubAccessToken` — so a forged token could register a package
+ * under someone else's account, and inherit their seal. Nothing ever issued one.
  */
 async function getAuth(c: any): Promise<AuthenticatedUser | null> {
   const authHeader = c.req.header("Authorization");
@@ -194,16 +200,6 @@ async function getAuth(c: any): Promise<AuthenticatedUser | null> {
     }
   } catch (err) {
     console.error("[AUTH] Session verification error:", err);
-  }
-
-  // JWT (fallback)
-  try {
-    const payload = await verifyToken(token);
-    if (payload) {
-      return payload as unknown as AuthenticatedUser;
-    }
-  } catch (err) {
-    console.error("[AUTH] JWT verification error:", err);
   }
 
   return null;

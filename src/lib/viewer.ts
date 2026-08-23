@@ -12,11 +12,9 @@ import { verifySession } from "@/lib/security";
  * server action have neither a Hono context nor a request object, so this is the
  * equivalent for them: read the cookie, look the session up, return the row.
  *
- * Session table only — deliberately not the JWT fallback the API still accepts.
- * A session can be revoked by deleting a row, a signed token cannot, and this
- * helper exists to gate moderation. It is also the stricter of the two paths in
- * a second way: the legacy JWT payload carries a numeric `userId`, while account
- * ids are text UUIDs, so that branch could never have matched a real row here.
+ * Session table only, which is now the one way in everywhere — the API's signed-
+ * token fallback has been removed. A session can be revoked by deleting a row,
+ * and this helper exists to gate moderation.
  *
  * Wrapped in React's `cache()`, so a page that checks the role and then renders
  * the account's own name does one database read, not two.
