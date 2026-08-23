@@ -58,8 +58,7 @@ request further on, where a single version resolves in one call — the full sha
 of both is on the [HTTP API](/docs/api) page.
 
 `finn` then clones or fetches from `repo_url` at the commit recorded for that
-version. Your bytes come from GitHub, over your own connection, and the registry
-never sees them.
+version, and writes both into `finn.lock`.
 
 ## What finn says about trust
 

@@ -5,7 +5,7 @@ import RegisterForm from "./RegisterForm";
 export const metadata: Metadata = {
   title: "Register a package",
   description:
-    "Claim a package name and bind it to a repository you can push to. Nothing is uploaded — the code stays on GitHub.",
+    "Claim a package name, bind it to a repository you can push to, and register the git tags that become its versions.",
 };
 
 /**
@@ -21,15 +21,15 @@ export default function NewPackagePage() {
     <div className="mx-auto max-w-2xl px-6 py-10">
       <h1 className="text-3xl sm:text-4xl">Register a package</h1>
       <p className="reading-muted mt-3">
-        Registering claims a name and binds it to a repository. Nothing is
-        uploaded — no archive, no code, no build. When someone runs{" "}
-        <code className="identifier text-ink">finn add yourname</code>, the
-        registry tells them which repository and commit to fetch, and GitHub
-        serves it.
+        Registering claims a name and binds it to a repository you can push to.
+        From then on{" "}
+        <code className="identifier text-ink">finn add yourname</code> resolves
+        through the register: it reads the repository and the exact commit behind
+        the version it needs, and installs that.
       </p>
       <p className="eyebrow mt-4">
         <Link href="/docs/registering-a-package" className="hover:text-ink">
-          What this does and does not do →
+          How registering works →
         </Link>
       </p>
 

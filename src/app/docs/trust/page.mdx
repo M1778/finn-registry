@@ -54,8 +54,7 @@ corrected ruling is a new entry rather than a rewritten one.
 Those minutes are visible to reviewers on the bench and nowhere else. Nothing on
 the wire carries them, `trust.level` stays the only trust field `finn` reads, and
 a package vouched for before the register kept minutes says exactly that instead
-of being given a plausible one. The reasoning is in
-[ADR-0006](https://github.com/M1778M/finn-registry/blob/master/docs/adr/0006-the-register-keeps-minutes.md).
+of being given a plausible one.
 
 ## Recognized is not a warning
 
@@ -79,11 +78,9 @@ project that wants a higher floor sets `--verified-only`, which refuses anything
 below `trusted`.
 
 <Callout kind="warning">
-  This section describes what `finn` is agreed to do, not what it does today. The
-  shipped `install` refuses any source it does not consider official unless you
-  pass `--ignore-regulations`, and `finn add` does not consult trust at all. The
-  agreement lives in §2.5 of the registry contract; until the CLI catches up,
-  read this as the target.
+  This section describes what the seals are designed for. Today `finn install`
+  refuses any source it does not consider official unless you pass
+  `--ignore-regulations`, and `finn add` does not read trust levels.
 </Callout>
 
 <Callout>

@@ -1,26 +1,17 @@
 export const metadata = {
   title: "What this is",
   description:
-    "Finn Registry records package names, owners and commits. GitHub serves the code.",
+    "What the register records for every Fin package: the name, the publisher behind it, the repository, and the commit each version resolves to.",
 };
 
 # What this is
 
-Finn Registry is the register of record for Fin packages. It stores the claim
-that a name belongs to a publisher, points at a repository, and resolves to a
-commit.
+Finn Registry is the register of record for Fin packages. It holds the claim that
+a name belongs to a publisher, points at a repository, and resolves to a commit.
 
-It does not store your code. There is no archive, no tarball, no build cache and
-no mirror. When `finn add http` runs, the registry answers with a repository URL,
-and the version record for a release names the tag and the commit that tag
-resolved to. `finn` fetches the source from GitHub.
-
-<NotThis>
-The registry is not a distribution platform, a CDN, or a mirror. Nothing is
-uploaded to it and nothing is downloaded from it except a few hundred bytes of
-JSON. If GitHub is down, the registry can still tell you where a package lives —
-and `finn` still cannot fetch it.
-</NotThis>
+When `finn add http` runs, the register answers with the repository that name
+belongs to and, for a release, the tag and the commit that tag resolved to. That
+is what `finn` needs to fetch exactly the code you asked for.
 
 ## What the register holds
 
@@ -28,30 +19,17 @@ For each package name:
 
 | Recorded                          | Not recorded                        |
 | --------------------------------- | ----------------------------------- |
-| The bare name                     | Package contents                    |
-| The publisher standing behind it  | What the code actually does         |
-| The repository it points at       | Download counts                     |
-| Each version, and its git commit  | Stars, ratings, popularity          |
-| A publisher-supplied checksum     | A checksum we computed ourselves    |
-| Whether it was withdrawn          | A licence the publisher typed       |
+| The bare name                     | Download counts                     |
+| The publisher standing behind it  | Stars, ratings, popularity          |
+| The repository it points at       | A checksum we computed ourselves    |
+| Each version, and its git commit  | A licence the publisher typed       |
+| A publisher-supplied checksum     |                                     |
+| Whether it was withdrawn          |                                     |
 
-The right-hand column is the interesting one. A registry that displays a number
-nobody measures has invented it, so this one leaves the space blank instead. The
-licence is the one GitHub reports for the repository rather than the one a
-publisher typed, for the same reason: a licence is a legal statement about
-someone's code, and the register will not repeat a claim it cannot check.
-
-## Why it is built this way
-
-Hosting package bytes costs storage and bandwidth, and it makes the registry a
-single point of failure for every install. GitHub already does that job, does it
-better, and already holds every Fin package. So the registry does the one thing
-GitHub cannot: it says which repository a bare name means, and who is
-accountable for it.
-
-That is the whole design. It is written up in
-[ADR-0001](https://github.com/M1778M/finn-registry/blob/master/docs/adr/0001-registry-indexes-github-serves.md)
-if you want the trade-offs.
+Nothing here is estimated. A register that shows a number nobody measured has
+invented it, so the right-hand column stays empty instead. The licence shown is
+the one GitHub reports for the repository, because a licence is a legal statement
+about someone's code and the register repeats only what it can check.
 
 ## Where to go next
 

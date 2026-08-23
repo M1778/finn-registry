@@ -13,8 +13,7 @@ no key.
 There are no API keys and no `Authorization` header. There is no `POST /publish`.
 The endpoints that create records require a browser session and a GitHub OAuth
 grant, which is not something a CLI can hold — so registration is a website flow
-and the API surface `finn` talks to is read-only. Earlier documentation described
-JWT tokens and `fn_`-prefixed keys; those are gone.
+and the API surface `finn` talks to is read-only.
 </NotThis>
 
 ## Base URL
@@ -102,12 +101,9 @@ GET /api/packages?q=&sort=&trust=&limit=&offset=
 Returns `{ "total": 42, "items": [...] }`.
 
 <Callout>
-  `sort=downloads` and `sort=stars` return `400 invalid_sort`, and there is no
-  `downloads` field on any response. Nothing increments a download count and stars
-  are not recorded, so the number would be `0` on every package in the register —
-  which reads as "nobody uses this" rather than "we do not measure this". There is
-  no `category` filter either — the column exists on the table with a default of
-  `"Utilities"`, which is to say nobody has ever chosen one.
+  `sort=downloads` and `sort=stars` return `400 invalid_sort`, and no response
+  carries a `downloads` field: the register does not measure installs or stars, so
+  it does not report them. There is no `category` filter either.
 </Callout>
 
 ## Health
@@ -136,11 +132,3 @@ Every error is `{"error": "<code>", "message": "<human sentence>"}`. Branch on
 
 Treat `5xx` as retryable with backoff, and never as "package does not exist". Only
 a `404` means that.
-
-## The full contract
-
-The authoritative version, including the endpoints the CLI must *not* call and the
-questions still open, is
-[`docs/REGISTRY-CONTRACT.md`](https://github.com/M1778M/finn-registry/blob/master/docs/REGISTRY-CONTRACT.md)
-in the registry repository. If this page and that document disagree, that document
-is right and this page is stale — please open an issue.

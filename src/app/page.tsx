@@ -1,15 +1,15 @@
 import Link from "next/link";
 import Countersignature from "@/components/registry/Countersignature";
+import { LogoMark } from "@/components/registry/Logo";
 import Ledger from "@/components/registry/Ledger";
 import RegisterSearch from "@/components/registry/RegisterSearch";
 import Seal, { SEAL_MEANING } from "@/components/registry/Seal";
 import type { PackageRecord, VersionRecord } from "@/types/registry";
 
 /**
- * The hero is a specimen register entry rather than a headline about trust.
- * Showing the actual assertion the registry makes is both the clearest
- * explanation available and the only honest one: the entry below is marked as a
- * specimen because it is a form sample, not a record that exists.
+ * The hero closes on a real register entry rather than a claim about one.
+ * Marked as a specimen because it is a form sample: `http` is not a name anyone
+ * has claimed, so nothing here should be mistaken for a record.
  */
 const SPECIMEN: PackageRecord = {
   name: "http",
@@ -52,15 +52,15 @@ const SPECIMEN_VERSION: VersionRecord = {
 const STEPS = [
   {
     title: "Sign in with GitHub",
-    body: "We use your GitHub account to check one thing: whether you can push to the repository you are claiming.",
+    body: "Your GitHub account is how the register knows who you are.",
   },
   {
     title: "Choose the repository",
-    body: "Push access is the proof of ownership. No push access, no claim — there is no other route in.",
+    body: "Push access proves the repository is yours. That is the proof the register records.",
   },
   {
     title: "Claim the name",
-    body: "Names are bare and first come, first served. The name now points at your repository.",
+    body: "Names are bare and first come, first served. Yours now resolves to your repository.",
   },
   {
     title: "Register a tag",
@@ -76,19 +76,26 @@ export default function Home() {
         <div className="mx-auto max-w-5xl">
           <p className="eyebrow">The register</p>
 
-          <h1 className="mt-5 max-w-3xl text-4xl sm:text-5xl md:text-6xl">
-            Finn packages live on GitHub.
-            <br />
-            Their names live here.
-          </h1>
+          {/* The masthead. Both halves are sized fluidly off the viewport for
+              one reason: the name carries a hyphen, and a browser will happily
+              break after it. Nothing here may wrap, so nothing here may
+              overflow. The mark's box is ~1.65x the wordmark's cap height,
+              which is what puts the F's crossbars on the same optical line as
+              the letters beside them. */}
+          <div className="mt-6 flex items-center gap-4 sm:gap-6">
+            <LogoMark className="text-ink size-[clamp(2.5rem,10vw,5.5rem)] shrink-0" />
+            <h1 className="text-[clamp(1.75rem,7.5vw,4.5rem)] whitespace-nowrap">
+              finn-registry
+            </h1>
+          </div>
 
-          <p className="reading-muted mt-6 max-w-2xl">
-            The registry records who owns a name, the repository it points at,
-            and the commit each version resolves to.{" "}
+          <p className="reading-muted mt-8 max-w-2xl">
+            The register of record for Fin packages. Every name here has an
+            owner, a repository it resolves to, and a commit behind each
+            version.{" "}
             <span className="identifier text-ink text-[0.95em]">finn</span> reads
-            this to know whether it can vouch for what it is about to fetch. Your
-            code is never uploaded, never stored here, and never passes through
-            us.
+            the register before it fetches, so you know what you are installing
+            and who stands behind it.
           </p>
 
           <div className="mt-10">
@@ -130,10 +137,8 @@ export default function Home() {
           </dl>
 
           <p className="reading-muted mt-8 max-w-2xl text-sm">
-            A name that is not on the register gets no seal at all. When{" "}
-            <span className="identifier text-ink text-[0.95em]">finn</span> meets
-            one, it does not refuse the install — it tells you the registry
-            cannot vouch for it and asks whether to continue.
+            A name that is not on the register carries no seal. Every seal that
+            is shown is a claim the register stands behind.
           </p>
         </div>
       </section>
@@ -150,7 +155,8 @@ export default function Home() {
         <div className="mx-auto max-w-5xl">
           <h2 className="text-2xl sm:text-3xl">Adding a package</h2>
           <p className="reading-muted mt-4 max-w-2xl">
-            Four steps, and none of them involve uploading anything.
+            Four steps. You will need push access to the repository you are
+            claiming.
           </p>
 
           <ol className="mt-10 grid gap-px sm:grid-cols-2">

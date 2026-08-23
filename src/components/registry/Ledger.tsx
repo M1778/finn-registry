@@ -77,8 +77,8 @@ export default function Ledger() {
           <div className="px-4 py-10 text-center">
             <p className="text-ink font-medium">The register is empty.</p>
             <p className="reading-muted mx-auto mt-2 max-w-sm text-sm">
-              The first entry can be yours. If you have push access to a Finn
-              package on GitHub, you can claim its name.
+              The first entry can be yours. Claim a name for any repository you
+              can push to.
             </p>
             <Link
               href="/new"

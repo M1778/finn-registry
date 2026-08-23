@@ -35,7 +35,7 @@ export const DOCS_NAV: DocGroup[] = [
         title: "What this is",
         href: "/docs",
         summary:
-          "The registry records names, owners and commits. GitHub serves the code.",
+          "What the register records for every package: the name, its owner, the repository and the commit.",
         keywords: ["introduction", "overview", "distribution", "hosting"],
       },
       {
@@ -71,7 +71,7 @@ export const DOCS_NAV: DocGroup[] = [
         title: "Registering a package",
         href: "/docs/registering-a-package",
         summary:
-          "Claim a name in the browser. There is no publish command, and nothing is uploaded.",
+          "Claim a name in the browser and bind it to a repository you can push to.",
         keywords: [
           "publish",
           "publishing",
@@ -101,7 +101,7 @@ export const DOCS_NAV: DocGroup[] = [
         title: "Checksums and integrity",
         href: "/docs/integrity",
         summary:
-          "What a checksum can honestly mean when the registry never sees the code.",
+          "How a version is pinned to a commit, and what a checksum on a record claims.",
         keywords: ["checksum", "sha256", "signing", "signature", "integrity"],
       },
     ],
@@ -112,7 +112,7 @@ export const DOCS_NAV: DocGroup[] = [
       {
         title: "HTTP API",
         href: "/docs/api",
-        summary: "The read endpoints finn calls, and the ones it must not.",
+        summary: "The read endpoints finn calls, and what each one returns.",
         keywords: ["api", "endpoints", "json", "rest", "authentication", "keys"],
       },
       {
@@ -124,7 +124,7 @@ export const DOCS_NAV: DocGroup[] = [
       {
         title: "Continuous integration",
         href: "/docs/ci",
-        summary: "Installing dependencies in CI. Releases are not automated.",
+        summary: "Installing dependencies in CI with finn sync. No credentials needed.",
         keywords: ["ci", "cd", "github actions", "token", "automation"],
       },
     ],

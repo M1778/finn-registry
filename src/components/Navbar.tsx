@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Github, LogOut } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import Logo from "@/components/registry/Logo";
 
 /**
  * Only the fields the bar renders. `/api/auth/status` returns the whole account
@@ -49,9 +50,8 @@ export default function Navbar() {
     <nav className="rule-bottom bg-ground/85 sticky top-0 z-50 w-full backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-6 px-6">
         <div className="flex min-w-0 items-center gap-7">
-          <Link href="/" className="shrink-0 text-[0.9375rem] tracking-tight">
-            <span className="text-ink font-semibold">Finn</span>{" "}
-            <span className="text-ink-muted font-normal">Registry</span>
+          <Link href="/" className="shrink-0" aria-label="finn-registry home">
+            <Logo />
           </Link>
 
           <div className="hidden items-center gap-5 text-sm sm:flex">

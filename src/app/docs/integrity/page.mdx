@@ -1,20 +1,18 @@
 export const metadata = {
   title: "Checksums and integrity",
   description:
-    "What a checksum can honestly mean when the registry never sees the code it describes.",
+    "How the register pins a version — the commit behind it — and what a checksum on a record claims.",
 };
 
 # Checksums and integrity
 
-A registry that stores package bytes can hash them and promise the hash matches.
-This one does not store package bytes, so it cannot make that promise, and it does
-not pretend to.
+What the register pins is the commit. A commit hash names an exact tree, which is
+a stronger statement than a hash over an archive — and it is git's guarantee,
+checkable by you, not a promise you have to take from us.
 
 <NotThis>
-Packages are not cryptographically signed. The registry does not recompute a
-checksum on receipt, because nothing is received. Earlier documentation claimed
-both; neither has ever been true, and neither is possible under
-[ADR-0001](https://github.com/M1778M/finn-registry/blob/master/docs/adr/0001-registry-indexes-github-serves.md).
+Packages are not cryptographically signed, and the registry does not recompute
+checksums. A checksum on a version record is the one its publisher attested to.
 </NotThis>
 
 ## What the registry actually records
@@ -30,8 +28,7 @@ If you pin a commit, you have pinned the code.
 **A publisher-attested checksum.** If a publisher supplies a checksum, the
 registry relays it and labels it `publisher_attested`. That is exactly as strong
 as trusting the publisher — no more, which is why the register shows it as
-"Attested" and never as verified. There is no way to submit one yet, because
-recording a release at all is still an unsettled step
+"Attested" and never as verified. There is no way to submit one yet
 ([Registering a package](/docs/registering-a-package)), so no entry carries a
 checksum today.
 
@@ -41,20 +38,16 @@ checksum today.
 against the same lockfile fetches the same commit, and git's own content
 addressing makes any substitution visible. That protects you against a moved tag,
 a force-pushed branch, and a rewritten release — the realistic attacks — without
-the registry ever touching your code.
+anything having to be taken on trust.
 
-What it does not protect against is a repository being deleted, or GitHub being
-down when you install. Those are GitHub's failure modes, and the registry cannot
-stand in for it — it was never sent a byte of the code, so it has nothing to serve
-— while a registry that mirrored content would trade them for its own.
+What it does not protect against is a repository being deleted, or an outage at
+the moment you install. If a version has to keep resolving through either, vendor
+it or keep your own mirror.
 
 ## An open question
 
-What is *not* open is whether the registry could hash the code itself. It cannot:
-it is never sent the bytes, and it runs somewhere it could not clone a repository
-from. A checksum on the register can only ever be one a publisher submitted.
-
-What is open is whether such a checksum is worth the submission step, and that
+A checksum on the register is one its publisher submitted. What is open is
+whether such a checksum is worth the submission step, and that
 turns on whether the hash `finn` computes over an installed package is
 reproducible from a clean clone. It would require agreeing on what exactly is
 hashed: which files, in which order, with which normalisation, and what happens to
@@ -67,6 +60,5 @@ their own release. Treat the commit as the fact.
 
 <Callout>
   If you need a stronger guarantee today, vendor the dependency or pin the commit
-  yourself. Both are honest answers, and both are better than a checksum whose
-  meaning nobody has written down.
+  yourself. Both give you the same guarantee the lockfile does, held locally.
 </Callout>

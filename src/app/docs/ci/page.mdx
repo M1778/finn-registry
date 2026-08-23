@@ -1,20 +1,18 @@
 export const metadata = {
   title: "Continuous integration",
   description:
-    "Installing dependencies in CI with finn sync. Releases are not automated, and there is no token to configure.",
+    "Installing dependencies in CI with finn sync. No credentials, no token, no release step to configure.",
 };
 
 # Continuous integration
 
 CI needs one command, `finn sync`, and no credentials at all. The registry's read
-endpoints are public, and the code comes from GitHub over the runner's own network.
+endpoints are public, so there is nothing to configure and nothing to keep secret.
 
 <NotThis>
 There is no `FINN_TOKEN`, no `finn publish`, and no release step to automate.
 Registering a name is a one-time browser flow ([Registering a package](/docs/registering-a-package)),
-not something a pipeline does per release. Earlier documentation shipped a
-workflow that logged in with a secret and published on tag; none of those commands
-exist.
+not something a pipeline does per release.
 </NotThis>
 
 ## GitHub Actions
@@ -48,9 +46,9 @@ Two details in that are load-bearing. The installer writes to `~/.finn/bin` and
 deliberately does not edit any shell profile, so the `GITHUB_PATH` line is what
 makes `finn` runnable in later steps. And `git` must be on the runner — `finn`
 clones from GitHub rather than downloading archives. Both are true on
-`ubuntu-latest` already. One thing is not yet true anywhere: no `finn` release has
-been tagged, so the install step has nothing to fetch until the first one lands —
-see [Installing finn](/docs/installing-finn).
+`ubuntu-latest` already. Note that no `finn` release has been tagged yet, so the
+install step has nothing to fetch until the first one lands — see
+[Installing finn](/docs/installing-finn).
 
 ## Commit the lockfile
 

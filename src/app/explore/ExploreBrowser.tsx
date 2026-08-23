@@ -198,7 +198,7 @@ function ExploreContent() {
             </p>
             <p className="reading-muted mx-auto mt-2 max-w-sm text-sm">
               {query
-                ? "The package may exist on GitHub without being registered here. Anyone with push access can claim its name."
+                ? "That name has not been claimed yet. Anyone with push access to a repository can claim it."
                 : "No names have been claimed yet."}
             </p>
             <Link

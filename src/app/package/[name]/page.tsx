@@ -50,7 +50,7 @@ export async function generateMetadata({
     title: pkg.name,
     description:
       pkg.description ??
-      `${pkg.name} is on the Finn register, claimed by ${pkg.publisher.login} and pointing at ${displayRepo(pkg.repo_url)}.`,
+      `${pkg.name} is on the register, claimed by ${pkg.publisher.login} and pointing at ${displayRepo(pkg.repo_url)}.`,
   };
 }
 

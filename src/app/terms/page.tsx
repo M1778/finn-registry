@@ -35,10 +35,9 @@ const CLAUSES = [
       <>
         Registering a name gives us a row containing your package name, a
         description, and the URL of your repository. It does not give us your
-        code, because we never receive it — GitHub serves every byte anyone
-        installs. So there is no licence for you to grant here and we ask for
-        none. Your repository stays under whatever licence you put in it, and our
-        copy of that licence field is a label, not a grant.
+        code, and we ask for no licence to it. Your repository stays under
+        whatever licence you put in it, and our copy of that licence field is a
+        label, not a grant.
       </>
     ),
   },
@@ -50,21 +49,19 @@ const CLAUSES = [
         That is all the claim asserts. Names are held, not owned: a maintainer can
         release a name that was claimed to squat, to impersonate, or in error, and
         can transfer one when a project moves. We will say who asked and why when
-        we do it. If you want a name to be permanently yours, a register run by
-        volunteers is not the instrument for that.
+        we do it.
       </>
     ),
   },
   {
-    heading: "We cannot make anything immutable, and we do not claim to",
+    heading: "A version record points into your repository",
     body: (
       <>
-        A version record here names a tag and the commit it resolved to. Both live
-        in your repository. Delete the tag, force-push over it, rename the
-        repository or make it private, and the record still exists while what it
-        points at no longer resolves — installs break and we cannot prevent it.
-        This is a real limit of not hosting anything, not a defect. What the
-        commit hash does buy you is detection: if the contents change, the pin
+        A version record names a tag and the commit that tag resolved to, and both
+        live in your repository. Delete the tag, force-push over it, rename the
+        repository or make it private, and the record stands while what it points
+        at stops resolving, so installs of that version will fail. The commit hash
+        is what protects you meanwhile: if the contents behind it change, the pin
         stops matching, so a substitution is visible rather than silent.
       </>
     ),
@@ -124,11 +121,8 @@ const CLAUSES = [
       <>
         This register is free, run by volunteers, and offered as it is. There is
         no company behind it and no service agreement to appeal to. It may be
-        slow, it may be wrong, it may go down, and it may one day stop — and
-        because it hosts nothing, the day it stops, every package it lists is
-        still exactly where it always was, on GitHub. Building on it is a bet you
-        are making; keep your lockfiles, which pin commits and do not need us to
-        resolve.
+        slow, it may be wrong, it may go down, and it may one day stop. Keep your
+        lockfiles: they pin commits and resolve without us.
       </>
     ),
   },

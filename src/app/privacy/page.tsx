@@ -74,10 +74,10 @@ export default function PrivacyPage() {
       <p className="eyebrow">Schedule of records</p>
       <h1 className="mt-2 text-3xl sm:text-4xl">What we hold</h1>
       <p className="reading-muted mt-3 max-w-2xl">
-        Finn Registry stores no package code. GitHub serves every byte anyone
-        installs, so there is no upload, no artifact and no download to log —
-        which makes this list short enough to write out in full rather than
-        describe in general terms. Revised {REVISED}.
+        Finn Registry holds an account, the names you claim, and the records
+        behind them. That is short enough to write out in full rather than
+        describe in general terms, so this page lists every field by name.
+        Revised {REVISED}.
       </p>
 
       <div className="mt-10 space-y-6">
@@ -115,8 +115,7 @@ export default function PrivacyPage() {
             The value in your <span className="identifier">auth_token</span>{" "}
             cookie, stored as issued rather than hashed — the session is found by
             looking this value up. Anyone with database access could therefore use
-            your session until it expires. Saying so is more useful than the
-            reassuring sentence that used to be here.
+            your session until it expires.
           </Field>
           <Field name="github_access_token">
             Your GitHub token, in plain text, for as long as the session lives.
@@ -189,9 +188,8 @@ export default function PrivacyPage() {
             </p>
             <ul className="reading-muted space-y-2 text-sm">
               <li className="ruled pt-2">
-                <span className="text-ink">No download counts.</span> The bytes
-                come from GitHub, so an install is something we cannot see even
-                if we wanted to.
+                <span className="text-ink">No download counts.</span> Installs
+                do not pass through the register, so there is nothing to count.
               </li>
               <li className="ruled pt-2">
                 <span className="text-ink">No search or page logs.</span> What
@@ -224,12 +222,12 @@ export default function PrivacyPage() {
             <p className="reading-muted text-sm">
               Two services, both structural rather than optional.{" "}
               <span className="text-ink">GitHub</span> authenticates you, tells us
-              whether you can push to a repository, and serves every package —
-              your use of the register is visible to GitHub in the same way your
-              use of GitHub already is.{" "}
-              <span className="text-ink">Cloudflare</span> runs the site and
-              holds the database, and terminates the connection, so it sees the
-              requests. We add nobody else.
+              whether you can push to a repository, and serves the source you
+              install — your use of the register is visible to GitHub in the same
+              way your use of GitHub already is.{" "}
+              <span className="text-ink">Our hosting provider</span> runs the
+              site, holds the database and terminates the connection, so it sees
+              the requests. We add nobody else.
             </p>
           </div>
         </section>
@@ -241,22 +239,19 @@ export default function PrivacyPage() {
           <div className="space-y-3 px-4 py-4">
             <h3 className="text-lg">Getting it deleted</h3>
             <p className="reading-muted text-sm">
-              Signing out deletes the session row and its GitHub token. Nothing
-              else has a button yet: there is no self-service account deletion, so
-              until there is, ask a maintainer through the registry&rsquo;s
-              repository and it is done by hand. Two things are worth knowing
-              before you ask. Deleting your account releases every package name
-              you hold, and a released name can be claimed by somebody else. And
-              the register keeps a record of what reviewers decided, so if an
-              admin verified or refused you, that decision stays on file with
-              your account id even after the account is gone — a register that
-              could be made to forget its own rulings would not be a register.
+              Signing out deletes the session row and its GitHub token. To
+              delete the account itself, ask a maintainer through the
+              registry&rsquo;s repository; it is done by hand. Two things are
+              worth knowing before you ask. Deleting your account releases every
+              package name you hold, and a released name can be claimed by
+              somebody else. And the register keeps a record of what reviewers
+              decided, so if an admin verified or refused you, that decision
+              stays on file with your account id after the account is gone.
             </p>
             <p className="reading-muted text-sm">
-              This page describes what the software does. It is not a claim to
-              comply with any particular data-protection regime; nobody has
-              audited that, and saying otherwise would be the same kind of
-              boilerplate this page was written to remove.
+              This page describes what the software does with your data. It is
+              not a certification of compliance with any particular
+              data-protection regime.
             </p>
           </div>
         </section>

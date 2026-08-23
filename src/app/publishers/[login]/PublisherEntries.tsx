@@ -77,8 +77,8 @@ export default function PublisherEntries({ items }: { items: PackageSummary[] })
       </div>
 
       <p className="eyebrow rule-top mt-6 pt-4">
-        Each entry points at a GitHub repository. The registry records the claim;
-        GitHub serves the code.
+        Each entry is a name this publisher holds, bound to a repository they can
+        push to.
       </p>
     </section>
   );

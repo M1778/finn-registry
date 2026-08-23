@@ -59,7 +59,7 @@ export async function generateMetadata({
   if (!found) {
     return {
       title: `${login} — not on the register`,
-      description: `Nothing on the Finn register is attributed to ${login}.`,
+      description: `Nothing on the register is attributed to ${login}.`,
       robots: { index: false },
     };
   }
@@ -69,7 +69,7 @@ export async function generateMetadata({
   return {
     // The login, as written on the entries they signed.
     title: found.profile.login,
-    description: `${found.profile.login} holds ${held} on the Finn register.`,
+    description: `${found.profile.login} holds ${held} on the register.`,
   };
 }
 

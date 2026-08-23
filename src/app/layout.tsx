@@ -28,13 +28,33 @@ const plexMono = IBM_Plex_Mono({
   display: "swap",
 });
 
+const TAGLINE =
+  "The register of record for Fin packages. Every name has an owner, a repository it resolves to, and a commit behind each version.";
+
 export const metadata: Metadata = {
+  // Without this, Next resolves the card's URL against localhost and warns at
+  // build time. Same env var the OAuth callback is built from, so one setting
+  // keeps both correct.
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.APP_URL ||
+      "http://localhost:3000",
+  ),
   title: {
-    default: "Finn Registry",
-    template: "%s · Finn Registry",
+    default: "finn-registry",
+    template: "%s · finn-registry",
   },
-  description:
-    "The register of record for Finn packages. Names, owners, and countersigned releases — the code stays on GitHub.",
+  description: TAGLINE,
+  applicationName: "finn-registry",
+  // The card is the mark alone (src/app/opengraph-image.png); the name and the
+  // line under it travel as text so they stay crisp and translatable.
+  openGraph: {
+    type: "website",
+    siteName: "finn-registry",
+    title: "finn-registry",
+    description: TAGLINE,
+  },
+  twitter: { card: "summary_large_image" },
 };
 
 export default function RootLayout({

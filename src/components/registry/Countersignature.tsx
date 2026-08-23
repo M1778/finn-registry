@@ -173,13 +173,13 @@ export default function Countersignature({
         </Field>
       </dl>
 
-      {/* The honest footer. This sentence is the whole architecture. */}
+      {/* The footer answers the one question the record leaves open: what will
+          actually be installed. */}
       <p className="rule-top bg-recessed text-ink-faint px-4 py-3 text-sm">
         <span className="reading-muted">
           {version
-            ? "finn fetches this source from GitHub at the commit above."
-            : "finn fetches this source from GitHub."}{" "}
-          The registry holds this record, not the code.
+            ? "finn installs this version from the commit above."
+            : "finn installs each version of this package from a tagged commit."}
         </span>
       </p>
     </section>

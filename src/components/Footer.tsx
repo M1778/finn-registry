@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Logo from "@/components/registry/Logo";
 
 const COLUMNS = [
   {
@@ -25,14 +26,11 @@ export default function Footer() {
       <div className="mx-auto max-w-5xl px-6 py-12">
         <div className="grid gap-10 sm:grid-cols-[2fr_1fr_1fr]">
           <div>
-            <p className="text-[0.9375rem] tracking-tight">
-              <span className="text-ink font-semibold">Finn</span>{" "}
-              <span className="text-ink-muted font-normal">Registry</span>
-            </p>
+            <Logo />
             {/* The closing statement is the same one the whole site makes. */}
             <p className="reading-muted mt-3 max-w-xs text-sm">
-              Package source is fetched from GitHub. The registry holds the
-              records — names, owners, and commits — not the code.
+              The register of record for Fin packages. Names, owners, and the
+              commit behind every version.
             </p>
           </div>
 
@@ -56,7 +54,7 @@ export default function Footer() {
         </div>
 
         <p className="eyebrow rule-top mt-10 pt-6">
-          Finn Registry · {new Date().getFullYear()}
+          finn-registry · {new Date().getFullYear()}
         </p>
       </div>
     </footer>
