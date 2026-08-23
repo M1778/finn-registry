@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "finn-registry",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "finn-registry",
+      // Create the database with `wrangler d1 create finn-registry` and paste the
+      // id it prints here. Left as a placeholder on purpose: a wrong id fails at
+      // deploy with a clear message, where a silently absent binding fails at
+      // runtime on every request.
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      // drizzle-kit generates into ./drizzle; wrangler defaults to ./migrations.
+      // Pointing it here is what lets `wrangler d1 migrations apply DB --remote`
+      // apply the same SQL that local development uses. `npm run db:migrate`
+      // (drizzle-kit) only ever touches the local file — D1 has no direct
+      // connection for drizzle-kit to open.
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
