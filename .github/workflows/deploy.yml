@@ -1,25 +1,40 @@
-name: CI/CD - Build, Test & Deploy
+name: CI/CD
 
 on:
   push:
-    branches: [main, master]
+    branches: [master]
   pull_request:
-    branches: [main, master]
+    branches: [master]
+
+# A newer push to the same ref makes an in-flight run pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
-  NODE_VERSION: '20'
+  # Not 20. `wrangler` refuses to start on anything below 22, so on 20 every
+  # gate in the Verify job passes and then the Deploy job dies at the first
+  # wrangler command — a green build followed by a failed deploy. Found by
+  # running the pipeline in Docker on CI's own Node version; see Dockerfile.
+  NODE_VERSION: '22'
 
 jobs:
-  # Run tests, linting, and type checking
+  # Four gates on every push and every pull request, cheapest first. Nothing
+  # deploys unless all four pass, and none of them is advisory: there is no
+  # `continue-on-error` in this file.
   test:
-    name: Test & Lint
+    name: Verify
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -27,27 +42,54 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run ESLint
-        run: npm run lint
-
-      - name: Run TypeScript type check
+      # Fast, and catches most things — but structurally blind to the two gates
+      # below: it does not know Next's rules about what a route module may
+      # export, and it does not resolve whether a named import actually exists
+      # in the module it comes from.
+      - name: Typecheck
         run: npm run typecheck
 
-      - name: Build application
-        run: npm run build
+      # `next lint`'s pass, run through the ESLint CLI against the same flat
+      # `eslint.config.mjs`. Not `next lint`: that is deprecated in 15.x and
+      # removed in 16, and this gate is too load-bearing to fail the day the
+      # framework drops it. `import/named` here has caught real runtime breakage
+      # that the typecheck cannot see. `tests` is included; the suite is code too.
+      - name: Lint
+        run: npx eslint src tests --max-warnings=0
 
-  # Deploy to Cloudflare (only on main branch)
+      # The production build is its own gate. `tsc --noEmit` was green across
+      # this repo for the entire time `next build` was failing, because Next's
+      # route-type validation only runs here. It also comes before the tests on
+      # purpose: a broken build makes every test failure ambiguous, and this is
+      # the faster of the two.
+      #
+      # This builds the *Worker*, not the Node target, and the difference matters:
+      # `next build` was green for a whole afternoon while the Worker bundle could
+      # not be produced at all, because esbuild resolves a different set of export
+      # conditions than webpack does. Verifying the artifact nobody deploys is not
+      # verification. `cf:build` runs `next build` internally, so this is strictly
+      # the stronger check and costs no extra time.
+      - name: Build worker bundle
+        run: npm run cf:build
+
+      - name: Test
+        run: npm test
+
+  # Deploy runs only for pushes to master, never for a pull request, and only
+  # after `test` is green.
   deploy:
-    name: Deploy
+    name: Deploy to Cloudflare Workers
     needs: test
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -55,12 +97,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build application
-        run: npm run build
+      # @opennextjs/cloudflare adapts the Next.js build into a Worker. This is a
+      # Workers deployment, not Pages, and not `wrangler deploy` over raw
+      # source: cf:build produces the worker bundle, cf:deploy ships it.
+      - name: Build worker bundle
+        run: npm run cf:build
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Deploy to Cloudflare
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+      # Before the deploy, not after: the new code assumes its schema exists, so
+      # a Worker that ships first is a Worker that 500s on every request until
+      # this finishes. D1 migrations here are additive, and wrangler tracks
+      # which have been applied, so re-running this is a no-op rather than a
+      # risk. If a migration is ever written that drops or rewrites a column,
+      # this ordering stops being safe and the deploy has to be split in two.
+      - name: Apply database migrations
+        run: npm run db:apply
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy worker
+        run: npm run cf:deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
