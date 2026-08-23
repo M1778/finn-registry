@@ -182,7 +182,7 @@ export default async function PackagePage({
                     href={pkg.homepage}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-ink inline-flex items-center gap-1.5 text-sm underline decoration-transparent underline-offset-4 transition-colors hover:decoration-current"
+                    className="text-ink inline-flex min-w-0 max-w-full items-center gap-1.5 text-sm underline decoration-transparent underline-offset-4 transition-colors hover:decoration-current"
                   >
                     <span className="truncate">
                       {pkg.homepage.replace(/^https?:\/\//, "")}

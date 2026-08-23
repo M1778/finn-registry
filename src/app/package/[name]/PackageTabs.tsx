@@ -106,8 +106,16 @@ function Readme({
   }
 
   return (
+    /* A README is markdown we did not write, so it can contain a table wider
+       than a phone or a code fence that never wraps. Those get their own scroll
+       box here; without it the widest line in someone else's README decides how
+       wide this page is, and the whole document scrolls sideways. The `_`
+       descendant variants are deliberate: the elements come from ReactMarkdown,
+       so there is no call site to put a class on. */
     <article
       className="prose prose-invert prose-zinc reading max-w-none
+        [&_pre]:overflow-x-auto [&_table]:block [&_table]:w-fit [&_table]:max-w-full
+        [&_table]:overflow-x-auto [&_code]:break-words [&_a]:break-words
         prose-headings:font-[family-name:var(--font-archivo)] prose-headings:tracking-tight
         prose-a:text-ink prose-a:underline prose-a:underline-offset-4
         prose-code:identifier prose-code:before:content-none prose-code:after:content-none
