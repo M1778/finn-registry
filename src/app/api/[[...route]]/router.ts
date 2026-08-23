@@ -19,6 +19,13 @@ import {
   hasRepositoryScope,
 } from "@/lib/security";
 import { deriveTrustLevel } from "@/lib/trust";
+import {
+  CAPTCHA_HEADER,
+  CAPTCHA_MESSAGES,
+  type CaptchaScope,
+  issueChallenge,
+  verifyCaptcha,
+} from "@/lib/captcha";
 import { canonicalRepoUrl, checkPushAccess, parseGitHubRepo } from "./github";
 import { isoTimestamp, serializePackage, serializeVersionWithRepo } from "./serializers";
 import { isExactVersion } from "./semver";
@@ -112,6 +119,33 @@ function badRequest(c: any, error: string, message: string) {
 
 function internalError(c: any, message: string) {
   return c.json({ error: "internal_error", message }, 500);
+}
+
+/**
+ * Refuse unless the caller did the work.
+ *
+ * Returns a response to send, or `null` to carry on. Runs after the session
+ * check on every route that has one: an anonymous caller should learn it needs
+ * to sign in, not that its proof-of-work was missing.
+ *
+ * Only browser-facing writes are gated. Everything the CLI reads (§3.2-§3.6,
+ * §3.9) is a public GET and is untouched, so this adds nothing for `finn` to
+ * implement — see §2.6.
+ */
+async function requireCaptcha(c: any, scope: CaptchaScope) {
+  const token = c.req.header(CAPTCHA_HEADER) || c.req.query("captcha");
+  const result = await verifyCaptcha(token, scope);
+  if (result.ok) return null;
+  return c.json(
+    {
+      error: "captcha_required",
+      reason: result.reason,
+      message: CAPTCHA_MESSAGES[result.reason],
+    },
+    // 428: the request is fine, it is missing a precondition the client can
+    // satisfy and retry. A 403 would read as "your account may not do this".
+    428,
+  );
 }
 
 /**
@@ -232,6 +266,39 @@ function getOrigin(c: any) {
 app.get("/health", (c) => {
   return c.json({ status: "ok", time: new Date().toISOString() });
 });
+
+// ---------------------------------------------------------------------------
+// Proof of work (web UI)
+// ---------------------------------------------------------------------------
+
+/**
+ * Hand out a challenge for one action.
+ *
+ * Costs one HMAC and no storage, so the ceiling here is generous — it exists to
+ * stop the endpoint being used as a free signing oracle, not to ration honest
+ * use. A page that solves on mount asks for exactly one of these per form.
+ *
+ * `login` is not offerable here: the sign-in interstitial issues its own, and a
+ * caller able to mint login challenges could pre-solve them in bulk.
+ */
+app.get(
+  "/captcha",
+  rateLimit({ windowMs: 5 * 60 * 1000, max: 120 }),
+  async (c) => {
+    const scope = c.req.query("scope");
+    if (scope !== "register" && scope !== "register-check" && scope !== "verify-request") {
+      return badRequest(
+        c,
+        "invalid_scope",
+        "Ask for a challenge by scope: register, register-check or verify-request.",
+      );
+    }
+    const challenge = await issueChallenge(scope);
+    // Never cached: a reused challenge is a replayed challenge.
+    c.header("Cache-Control", "no-store");
+    return c.json(challenge);
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Stats (web UI)
@@ -732,6 +799,9 @@ app.post("/registrations/check", registerLimit, async (c) => {
     return unauthorized(c, "Sign in with GitHub before checking a repository.");
   }
 
+  const challenged = await requireCaptcha(c, "register-check");
+  if (challenged) return challenged;
+
   const body = await readJsonBody(c);
   if (!body) {
     return checkRefusal(c, 400, "invalid_request", "The request body must be JSON.");
@@ -789,6 +859,9 @@ app.post("/packages", registerLimit, async (c) => {
   if (!auth) {
     return unauthorized(c, "Sign in with GitHub before registering a name.");
   }
+
+  const challenged = await requireCaptcha(c, "register");
+  if (challenged) return challenged;
 
   const body = await readJsonBody(c);
   if (!body) {
@@ -984,8 +1057,80 @@ function requestedScope(raw: string | undefined): string {
   return "user:email";
 }
 
+/**
+ * The page that stands in front of the redirect while the browser does the work.
+ *
+ * `/auth/github` already answered with an HTML shim that bounced the reader on
+ * with script, so the sign-in path was never reachable without JavaScript and
+ * this adds no new requirement. It also means the five places that link to
+ * `/api/auth/github` stay plain anchors: the gate lives behind the link rather
+ * than in every call site.
+ *
+ * The challenge is inlined rather than fetched so this costs one round trip, and
+ * the solver is written out longhand because there is no bundle here to import
+ * from. It must stay in step with `captcha-shared.ts` — same digest over
+ * `salt.nonce`, same leading-zero-bit count. `tests/captcha.test.ts` pins the
+ * shared side; if you change the algorithm, change it here too.
+ */
+function captchaBootstrap(
+  c: any,
+  challenge: { salt: string; bits: number; exp: number; sig: string },
+  nextUrl: string,
+) {
+  return c.html(`
+    <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Checking...</title><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+    <body style="background:#09090b;color:#fafafa;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui,sans-serif;">
+      <div style="text-align:center;padding:0 1.5rem;">
+        <p id="msg" style="font-size:0.9375rem;">Checking your browser...</p>
+        <p style="font-size:0.8125rem;color:#a1a1aa;">This takes a moment and needs no input from you.</p>
+      </div>
+      <script>
+        (async function () {
+          var salt = "${challenge.salt}";
+          var bits = ${challenge.bits};
+          var exp = "${challenge.exp}";
+          var sig = "${challenge.sig}";
+          var next = "${nextUrl}";
+          var enc = new TextEncoder();
+          function lz(bytes, want) {
+            var seen = 0;
+            for (var i = 0; i < bytes.length; i++) {
+              var b = bytes[i];
+              if (b === 0) { seen += 8; if (seen >= want) return seen; continue; }
+              return seen + (Math.clz32(b) - 24);
+            }
+            return seen;
+          }
+          var BATCH = 256;
+          try {
+            for (var base = 0; base < 4194304; base += BATCH) {
+              var jobs = [];
+              for (var i = 0; i < BATCH; i++) {
+                jobs.push(crypto.subtle.digest("SHA-256", enc.encode(salt + "." + (base + i))));
+              }
+              var out = await Promise.all(jobs);
+              for (var j = 0; j < out.length; j++) {
+                if (lz(new Uint8Array(out[j]), bits) >= bits) {
+                  var token = "v1." + salt + "." + bits + "." + exp + "." + sig + "." + (base + j);
+                  window.location.replace(next + encodeURIComponent(token));
+                  return;
+                }
+              }
+            }
+          } catch (err) {}
+          document.getElementById("msg").textContent =
+            "The check could not be completed. Reload the page to try again.";
+        })();
+      </script>
+    </body></html>
+  `);
+}
+
 // GitHub auth
-app.get("/auth/github", rateLimit({ windowMs: 5 * 60 * 1000, max: 10 }), (c) => {
+// 20 rather than 10: one sign-in now costs two requests here — the challenge
+// page and the solved one — so the reader-facing ceiling is unchanged at ten
+// attempts per five minutes.
+app.get("/auth/github", rateLimit({ windowMs: 5 * 60 * 1000, max: 20 }), async (c) => {
   const clientId = process.env.GITHUB_CLIENT_ID;
   if (!clientId) return authError(c, "Configuration Missing", "GitHub Client ID is not configured.");
 
@@ -994,6 +1139,38 @@ app.get("/auth/github", rateLimit({ windowMs: 5 * 60 * 1000, max: 10 }), (c) => 
   const state = generateRandomString(32);
   const scope = requestedScope(c.req.query("scope"));
   const returnTo = safeReturnPath(c.req.query("return"));
+
+  /*
+   * Proof of work before the redirect. Two attempts, because the signing key
+   * falls back to per-isolate random bytes when CAPTCHA_SECRET is unset, and a
+   * challenge issued by one isolate will not verify in another — a reader
+   * should not be dead-ended by that, but they should not loop on it either.
+   */
+  const presented = c.req.query("captcha");
+  // Anything can arrive here, and a NaN would compare false against every bound
+  // and then be written back as "NaN" — a redirect loop. Junk counts as a first
+  // attempt, which is the safe reading: the bootstrap always writes an integer.
+  const counter = Number(c.req.query("cr"));
+  const attempt = Number.isInteger(counter) && counter > 0 ? counter : 0;
+  const verdict = await verifyCaptcha(presented, "login");
+
+  if (!verdict.ok) {
+    if (attempt >= 2) {
+      return authError(
+        c,
+        "Check Failed",
+        CAPTCHA_MESSAGES[verdict.reason],
+      );
+    }
+    const challenge = await issueChallenge("login");
+    const params = new URLSearchParams();
+    if (c.req.query("scope")) params.set("scope", String(c.req.query("scope")));
+    if (c.req.query("return")) params.set("return", String(c.req.query("return")));
+    params.set("cr", String(attempt + 1));
+    // The solver appends the URL-encoded token to this.
+    const nextUrl = `/api/auth/github?${params.toString()}&captcha=`;
+    return captchaBootstrap(c, challenge, nextUrl);
+  }
 
   setCookie(c, "oauth_state", state, { path: "/", httpOnly: true, secure: true, sameSite: "Lax", maxAge: 600 });
   setCookie(c, "oauth_return", returnTo, { path: "/", httpOnly: true, secure: true, sameSite: "Lax", maxAge: 600 });
@@ -1321,6 +1498,9 @@ function parseRequestNote(value: unknown): { ok: true; note: string | null } | {
 app.post("/me/verification-request", async (c) => {
   const auth = await getAuth(c);
   if (!auth) return unauthorized(c, "Sign in to request verification.");
+
+  const challenged = await requireCaptcha(c, "verify-request");
+  if (challenged) return challenged;
 
   // A note is optional, so no body at all is a valid request.
   const body = (await readJsonBody(c)) ?? {};

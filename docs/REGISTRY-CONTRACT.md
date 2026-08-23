@@ -2,7 +2,7 @@
 
 **Audience**: whoever works on `finn`, the package manager (separate repository).
 **Status**: decisions below are settled unless a section says OPEN.
-**Written**: 2026-08-22. **Revised**: 2026-08-22 (rev 4); factual corrections 2026-08-23.
+**Written**: 2026-08-22. **Revised**: 2026-08-23 (rev 5).
 
 Read the first section before the endpoints. The endpoints only make sense once the
 distribution model is clear, and the model is not the one the registry's own published docs
@@ -17,6 +17,22 @@ simply out of date.
 ---
 
 ## 0. What changed
+
+### Since rev 4
+
+**Nothing in this revision changes any endpoint `finn` calls.** If you only read one line of this
+section, read that one.
+
+- **The browser writes now require proof of work** (§3.12). The three `POST`s in §3.10, plus the
+  sign-in redirect, will not act without a small SHA-256 search having been done by the caller.
+  Everything in §3.2–§3.6 and §3.9 — the entire CLI surface — is untouched: still public, still
+  plain `GET`, still no headers required. §3.12 exists so that if you see a `428` in a route table
+  or a server log you know what it is and that it is not aimed at you.
+- **One new error code, `captcha_required` (428)**, and one more, `invalid_scope` (400), on the
+  challenge endpoint. Both are browser-only, bringing the never-yours list to eleven.
+- **One new browser-only endpoint, `GET /api/captcha`.** It hands out challenges. It is not
+  authenticated, because a form on the sign-in page needs one before there is a session — but it
+  does nothing except issue a puzzle, and no CLI has any reason to call it.
 
 ### Since rev 3
 
@@ -257,6 +273,9 @@ exception is §3.10, which is not yours: those three endpoints require a browser
 and package management are **web flows** — the publisher signs in with GitHub in a browser. There
 is no `finn login`, no token in `finn.toml`, no device-code flow.
 
+Those same three endpoints also now require proof of work (§3.12). That, too, is not yours: no
+endpoint the CLI reads issues a challenge or checks for one.
+
 The registry's docs currently document `finn login`, `finn verify`, and `finn publish`, and its
 database carries unwired `auth_codes` and `api_keys` tables. **Both tables are being deleted.**
 None of that is part of this contract. If CI-driven registration is wanted later it arrives as an
@@ -488,7 +507,9 @@ large dependency graph or by any CI runner behind a shared egress IP.
 | Reads (everything the CLI calls)         | 1000 per 15 min per IP     |
 | Writes (browser session endpoints)       | 100 per 15 min per IP      |
 | Registration                             | 30 per 15 min per IP       |
-| OAuth start and callback                 | 10 per 5 min per IP        |
+| OAuth start (two requests per sign-in)   | 20 per 5 min per IP        |
+| OAuth callback                           | 10 per 5 min per IP        |
+| Proof-of-work challenges (§3.12)         | 120 per 5 min per IP       |
 
 Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`
 (reset is a Unix timestamp in seconds). A `429` adds `Retry-After` in seconds. **Read
@@ -627,6 +648,8 @@ each one:
 | `invalid_note`     | 400    | A verification-request note over 1000 characters (§3.10)         |
 | `already_verified` | 409    | A verification request from an already-verified account          |
 | `request_pending`  | 409    | A verification request while one is already in the queue         |
+| `captcha_required` | 428    | A §3.10 request with no valid proof of work (§3.12)              |
+| `invalid_scope`    | 400    | A `scope` outside `register` \| `register-check` \| `verify-request` on `GET /api/captcha` |
 
 The two `403`s are refusals on the merits rather than malformed requests, which is why neither is a
 `400`: `push_access_denied` is GitHub saying the account cannot push to the repository (§2.2), and
@@ -637,12 +660,38 @@ handler wraps its database read and answers `500 internal_error` when that throw
 only ever reads §3.2–§3.5 and §3.9 will meet it eventually. Retry it with backoff and never read it
 as "the package does not exist" (§3.8) — that is the distinction a lockfile depends on.
 
-Nine codes the CLI will never legitimately see, listed so an unexpected one is recognisable rather
+Eleven codes the CLI will never legitimately see, listed so an unexpected one is recognisable rather
 than mysterious: `invalid_request`, `invalid_name`, `invalid_repo_url`, `name_taken`,
 `scope_required` and `push_access_denied` belong to the browser registration flow, and
 `invalid_note`, `already_verified` and `request_pending` to the verification request — all of §3.10,
-whose `unauthorized` you will not see either, for the same reason. If `finn` receives any of them,
+whose `unauthorized` you will not see either, for the same reason. `captcha_required` and
+`invalid_scope` belong to §3.12, which guards those same endpoints. If `finn` receives any of them,
 it called an endpoint it should not have.
+
+### 3.12 Proof of work on the browser writes — also not yours
+
+The three endpoints in §3.10 and the sign-in redirect require the caller to have spent some CPU
+before they will act. `GET /api/captcha?scope=…` issues a signed challenge; the browser finds a
+`nonce` whose `SHA-256("<salt>.<nonce>")` starts with 13–15 zero bits and sends it back in an
+`x-finn-captcha` header. Without a valid one the answer is `428 captcha_required`. The exact wire
+format is in `REGISTRY-API.md` §7.4.
+
+**The CLI is not affected and must not implement any of this.** §3.2–§3.6 and §3.9 do not look at
+the header, do not issue challenges, and cannot return `428`. There is a test that fails if that
+ever stops being true (`tests/captcha.test.ts`, "does not gate the reads the CLI depends on"),
+precisely so this promise does not quietly rot.
+
+Why it exists: every §3.10 endpoint already requires a GitHub session, so this is not about telling
+humans from scripts — a script with a valid session is a signed-in human's script. It is about the
+*cost* of bulk submission. Filing ten thousand verification requests, or claiming a thousand names,
+previously cost an attacker nothing but HTTP; now each attempt costs about 2^15 hashes while
+verifying one costs the registry a single HMAC. It sits on top of the session check and the §3.7
+rate limits rather than replacing either.
+
+Deliberately not a third-party captcha: no API key, no account with anybody, no script from another
+origin, nothing sent about the reader to a service we do not run. That also means it makes no claim
+to stop a determined attacker — native code hashes far faster than a phone browser. It raises a
+floor; it is not a wall.
 
 ---
 

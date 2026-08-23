@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Github, Loader2 } from "lucide-react";
 import EntryRow, { toEntry, type Entry } from "@/components/registry/EntryRow";
 import Seal, { SEAL_MEANING } from "@/components/registry/Seal";
+import { useCaptcha } from "@/lib/use-captcha";
 
 /**
  * The publisher's own side of the register.
@@ -169,13 +170,19 @@ function Standing({
   const [error, setError] = useState<string | null>(null);
   const joined = formatDate(user.createdAt);
 
+  // Solved while the note is being written, so the send is not held up by it.
+  const { headers: proof } = useCaptcha("verify-request");
+
   const ask = async () => {
     setSending(true);
     setError(null);
     try {
       const res = await fetch("/api/me/verification-request", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(await proof()),
+        },
         body: JSON.stringify({ note: note.trim() || null }),
       });
       const data = await res.json().catch(() => null);

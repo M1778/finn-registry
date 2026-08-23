@@ -239,7 +239,8 @@ Every route below is mounted under **`/api`** on the registry host.
 
 **The CLI never authenticates.** Every endpoint in [§5](#5-endpoints-for-a-package-manager)
 and [§6](#6-endpoints-for-the-web-ui) is public and unauthenticated. Do not send
-an `Authorization` header; nothing reads one.
+an `Authorization` header; nothing reads one, and no proof-of-work header either
+([§7.4](#74-proof-of-work-on-the-browser-writes) applies to browser writes only).
 
 Reading is public because a registry that requires a token to resolve a name has
 made itself a chokepoint on builds. The authenticated endpoints ([§7](#7-endpoints-that-require-a-browser-session))
@@ -367,7 +368,8 @@ strings — a package that says "verified" is claiming something nobody checked.
 
 ## 5. Endpoints for a package manager
 
-These five are the whole CLI surface. All public, all `GET`, all unauthenticated.
+These five are the whole CLI surface. All public, all `GET`, all unauthenticated,
+and none of them asks for the proof of work the browser forms carry ([§7.4](#74-proof-of-work-on-the-browser-writes)).
 
 ### 5.1 `GET /api/packages/:name` — resolve one package
 
@@ -660,17 +662,21 @@ precisely so that a new column cannot leak into the public API by accident.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/auth/github` | Begin OAuth. Redirects to GitHub. 10 req / 5 min. |
+| `GET` | `/api/auth/github` | Begin OAuth. Answers a proof-of-work page, then redirects to GitHub (§7.4). 20 req / 5 min — two per sign-in. |
+| `GET` | `/api/captcha` | Issue a proof-of-work challenge for a browser form (§7.4). 120 req / 5 min. |
 | `GET` | `/api/auth/github/callback` | OAuth return leg. Sets the session cookie. 10 req / 5 min. |
 | `GET` | `/api/auth/status` | Whether this cookie is a live session. |
 | `POST` | `/api/auth/logout` | Destroy the session. |
 | `GET` | `/api/dashboard/data` | Everything the signed-in user's dashboard renders. |
 | `PATCH` | `/api/me/settings` | Update the signed-in account's own settings. |
-| `POST` | `/api/me/verification-request` | Ask an admin to verify this account (§7.3). |
-| `POST` | `/api/registrations/check` | Pre-flight: may I claim a name for this repo? (§7.1) |
-| `POST` | `/api/packages` | Claim a name (§7.2). |
+| `POST` | `/api/me/verification-request` | Ask an admin to verify this account (§7.3). Needs a proof. |
+| `POST` | `/api/registrations/check` | Pre-flight: may I claim a name for this repo? (§7.1) Needs a proof. |
+| `POST` | `/api/packages` | Claim a name (§7.2). Needs a proof. |
 
-Unauthenticated calls to these get `401 {"error":"unauthorized","message":…}`.
+Unauthenticated calls to these get `401 {"error":"unauthorized","message":…}`. The
+session is checked first, so a signed-out caller is told to sign in rather than
+handed a puzzle. The three marked "needs a proof" then require the header
+described in §7.4, and answer `428` without one.
 
 ### 7.1 `POST /api/registrations/check` — pre-flight
 
@@ -774,6 +780,68 @@ read before either insert lands.
 
 ---
 
+### 7.4 Proof of work on the browser writes
+
+The three `POST`s above, and the sign-in redirect, require the caller to have
+burnt some CPU. This is not a puzzle a person solves — there is nothing to read,
+click, or type — it is arithmetic the browser does on its own while the form is
+being filled in.
+
+**No CLI is affected.** Every endpoint in §5 and §6 is a plain public `GET` and
+none of them look at any of this. If you are writing a package manager, skip this
+section.
+
+How it works:
+
+1. `GET /api/captcha?scope=<scope>` returns a signed challenge:
+
+   ```json
+   { "salt": "9f2c1ab4e8d07b3c5a1f6e2d8b04c7a9", "bits": 15,
+     "exp": 1787000000000, "sig": "…64 hex chars…" }
+   ```
+
+   `scope` is one of `register`, `register-check`, `verify-request`. The response
+   is `Cache-Control: no-store`, because a reused challenge is a replayed one.
+
+2. The browser searches for a `nonce` where
+   `SHA-256("<salt>.<nonce>")` begins with at least `bits` zero bits. That takes
+   about `2^bits` hashes — a second or so on a laptop at 15 bits.
+
+3. It sends `x-finn-captcha: v1.<salt>.<bits>.<exp>.<sig>.<nonce>` with the
+   `POST`. (A `?captcha=` query parameter is accepted for the same value, which
+   is what the sign-in page uses, since it navigates rather than fetches.)
+
+Verifying costs the registry one HMAC and one SHA-256. That asymmetry is the
+whole mechanism: nothing is stored, no row is written, and no third-party service
+is contacted.
+
+Difficulties, by scope: sign-in 13 bits, `registrations/check` 14, `packages` 15,
+`verification-request` 15.
+
+Every refusal is `428 Precondition Required`:
+
+```json
+{ "error": "captcha_required", "reason": "expired",
+  "message": "The proof-of-work check went stale. Reload the page and try again." }
+```
+
+`reason` is one of `missing`, `malformed`, `expired`, `bad_signature`,
+`insufficient_work`, `replayed`. A challenge is good for ten minutes and for
+exactly one submission; `replayed` and `expired` both mean fetch a new one.
+
+`428` was chosen over `403` deliberately: this is a missing precondition on the
+request, not a judgement about the account, and it must not be logged or shown as
+one.
+
+**What this does and does not do.** It does not prove a human is present, and it
+does not stop a determined attacker — native code hashes far faster than a phone
+browser does. What it does is put a real, per-attempt CPU cost on bulk
+submission, which turns a script that files ten thousand verification requests
+into one that files a handful. It sits on top of the session requirement and the
+rate limits rather than replacing either.
+
+---
+
 ## 8. Error catalogue
 
 Every documented failure uses one envelope:
@@ -804,6 +872,8 @@ The one exception is §3.7: an unknown route returns plain text, not this envelo
 | `name_taken` | `409` | §7.2 | Names are global and first-come. | Terminal. Choose another name. |
 | `already_verified` | `409` | §7.3 | Nothing to request. | Terminal. |
 | `request_pending` | `409` | §7.3 | A request is already awaiting review. | Terminal. Wait. |
+| `captcha_required` | `428` | §7.1–7.3 | No valid proof of work (§7.4). | Not applicable to a CLI — §5/§6 need none. |
+| `invalid_scope` | `400` | §7.4 | Unknown `scope` on `/api/captcha`. | Fix the request. |
 | `rate_limited` | `429` | all | Ceiling exceeded. | Honour `Retry-After`, back off. |
 | `internal_error` | `500` | all | The registry failed. | **Retryable.** Never cache as absence. |
 
@@ -827,7 +897,9 @@ registry blip into a wrong lockfile that outlives it.
 | read | **every route** (`*`) | 15 min | **1000** | client IP |
 | write | `/api/me/*`, `/api/dashboard/*` | 15 min | 100 | client IP |
 | register | `POST /api/registrations/check`, `POST /api/packages` | 15 min | 30 | client IP **+ path** (so 30 each) |
-| auth | `GET /api/auth/github`, `GET /api/auth/github/callback` | 5 min | 10 | client IP **+ path** (so 10 each — 20 per IP across the pair) |
+| auth | `GET /api/auth/github` | 5 min | 20 | client IP **+ path**. One sign-in costs two: the challenge page and the solved one (§7.4), so this is ten attempts. |
+| auth | `GET /api/auth/github/callback` | 5 min | 10 | client IP **+ path** |
+| captcha | `GET /api/captcha` | 5 min | 120 | client IP **+ path**. High because a challenge is cheap to issue and single-use (§7.4). |
 
 The read bucket is mounted on `*`, so it applies to **everything** — the write and
 register routes consume the read budget as well as their own.

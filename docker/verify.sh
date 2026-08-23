@@ -38,7 +38,12 @@ step "Apply migrations to the local D1"
 npm run db:apply:local
 
 step "Boot the Worker and probe it"
-npx wrangler dev --port 8787 --ip 127.0.0.1 >/tmp/wrangler.log 2>&1 &
+# GITHUB_CLIENT_ID is set purely so `/api/auth/github` gets past its
+# configuration check: that route verifies proof of work before it needs a
+# session, which makes it the only place a probe can prove the captcha is
+# actually being checked on workerd. Nothing here talks to GitHub.
+npx wrangler dev --port 8787 --ip 127.0.0.1 \
+  --var GITHUB_CLIENT_ID:Iv1.probeonly >/tmp/wrangler.log 2>&1 &
 worker_pid=$!
 # Kill the runtime however this script exits, so a failed probe does not leave a
 # process holding the port.

@@ -33,6 +33,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as schema from "@/lib/db/schema";
+import { CAPTCHA_HEADER, type CaptchaScope } from "@/lib/captcha-shared";
+import { issueChallenge } from "@/lib/captcha";
+import { solveToken } from "@/lib/captcha-solver";
 
 // --- temp database ----------------------------------------------------------
 
@@ -44,6 +47,12 @@ const dbFile = path.join(tempDir, "registry.db");
 // db) as a side effect of their own imports.
 process.env.DATABASE_URL = `file:${dbFile}`;
 delete process.env.DB;
+
+// Same reason: `@/lib/captcha` imports its HMAC key lazily but caches it for the
+// isolate. Setting this here means challenges are signed with a known key rather
+// than the random per-isolate fallback, and the fallback's warning stays out of
+// the test output.
+process.env.CAPTCHA_SECRET = "test-captcha-secret-not-a-real-one";
 
 const client: Client = createClient({ url: process.env.DATABASE_URL });
 
@@ -184,7 +193,13 @@ export async function apiGet(url: string, init?: RequestInit): Promise<ApiRespon
  */
 export async function apiPost(
   url: string,
-  options: { body?: unknown; token?: string; headers?: Record<string, string> } = {},
+  options: {
+    body?: unknown;
+    token?: string;
+    headers?: Record<string, string>;
+    /** Pass false to send no proof of work, which is what a 428 test wants. */
+    captcha?: false;
+  } = {},
 ): Promise<ApiResponse> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -192,11 +207,43 @@ export async function apiPost(
   };
   if (options.token) headers.Cookie = `auth_token=${options.token}`;
 
+  const scope = CAPTCHA_ROUTES[url.split("?")[0]];
+  if (scope && options.captcha !== false && !headers[CAPTCHA_HEADER]) {
+    Object.assign(headers, await captchaHeaders(scope));
+  }
+
   return apiGet(url, {
     method: "POST",
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
+}
+
+// --- proof of work ----------------------------------------------------------
+
+/**
+ * The gated writes, and the scope each one checks.
+ *
+ * `apiPost` fills these in on its own so that a test about registration is
+ * about registration. The proof is real — issued by `@/lib/captcha` and solved
+ * by the same code the browser runs — so these tests exercise the gate rather
+ * than tunnelling under it. That costs a genuine 2^bits hashes per call, which
+ * is why the difficulties are what they are.
+ *
+ * Tests that want to see a refusal pass `captcha: false`.
+ */
+const CAPTCHA_ROUTES: Record<string, CaptchaScope> = {
+  "/api/registrations/check": "register-check",
+  "/api/packages": "register",
+  "/api/me/verification-request": "verify-request",
+};
+
+/** Issue and solve one challenge. Single-use: never cache the result. */
+export async function captchaHeaders(
+  scope: CaptchaScope,
+): Promise<Record<string, string>> {
+  const challenge = await issueChallenge(scope);
+  return { [CAPTCHA_HEADER]: await solveToken(challenge) };
 }
 
 // --- stubbing GitHub --------------------------------------------------------

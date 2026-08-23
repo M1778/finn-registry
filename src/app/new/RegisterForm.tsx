@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Check, Github, Loader2, X } from "lucide-react";
 import Countersignature from "@/components/registry/Countersignature";
+import { useCaptcha } from "@/lib/use-captcha";
 import { SEAL_MEANING } from "@/components/registry/Seal";
 import type { PackageRecord, TrustLevel } from "@/types/registry";
 
@@ -172,6 +173,19 @@ export default function RegisterForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  /*
+   * Both writes carry proof of work. They are deliberately not solved at the
+   * same time: hashing competes with itself, and the check always happens
+   * first. So the check's proof is prepared on arrival, and the registration's
+   * only once a repository has been confirmed — which is exactly when the
+   * reader turns to the name and description fields and has something else to
+   * do for a second.
+   */
+  const { headers: checkProof } = useCaptcha("register-check");
+  const { headers: registerProof } = useCaptcha("register", {
+    enabled: access.status === "granted",
+  });
+
   useEffect(() => {
     let live = true;
     fetch("/api/auth/status")
@@ -211,7 +225,10 @@ export default function RegisterForm() {
     try {
       const res = await fetch("/api/registrations/check", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(await checkProof()),
+        },
         body: JSON.stringify({ repo_url }),
       });
       const data = await res.json().catch(() => null);
@@ -238,7 +255,7 @@ export default function RegisterForm() {
         reason: "The check could not be completed. Try again in a moment.",
       });
     }
-  }, [repoInput, nameTouched]);
+  }, [repoInput, nameTouched, checkProof]);
 
   // Availability is answered by the resolve endpoint: a 404 is an unclaimed
   // name. No dedicated availability endpoint needed.
@@ -315,7 +332,10 @@ export default function RegisterForm() {
     try {
       const res = await fetch("/api/packages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(await registerProof()),
+        },
         body: JSON.stringify({
           name: draft.name,
           repo_url: draft.repo_url,
