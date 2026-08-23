@@ -1,98 +1,272 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { Shield, ArrowLeft } from "lucide-react";
+
+/**
+ * The privacy page.
+ *
+ * Written as a schedule of records rather than a policy, because for this
+ * register that is the honest form: it holds no package bytes (ADR-0001), so
+ * the complete answer to "what do you have on me" is four database rows and
+ * three cookies, and those can simply be named. A policy would have to be
+ * longer than the truth to sound like a policy.
+ *
+ * What was here before claimed the registry hashes session tokens (it stores
+ * them as issued, because they are looked up by value), collects package
+ * downloads and search queries (neither is recorded anywhere), sets analytics
+ * cookies (there are none), and complies with the GDPR and the CCPA (nobody has
+ * checked). Every one of those was boilerplate, and boilerplate about data is
+ * not a neutral placeholder — it is a promise made on someone's behalf.
+ */
+
+export const metadata: Metadata = {
+  title: "What we hold",
+  description:
+    "The complete list of what Finn Registry stores about an account, what it does not store, and the three cookies it sets.",
+};
+
+// Hardcoded, not `new Date()`. A date that is always today is not a revision
+// date, it is a claim that the page was reviewed when it was only rendered.
+const REVISED = "2026-08-22";
+
+function Field({
+  name,
+  children,
+}: {
+  name: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rule-top grid gap-1 px-4 py-3 first:border-t-0 sm:grid-cols-[13rem_1fr] sm:gap-4">
+      <p className="identifier text-ink-muted text-sm">{name}</p>
+      <p className="reading-muted text-sm">{children}</p>
+    </div>
+  );
+}
+
+function Record({
+  eyebrow,
+  title,
+  lead,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  lead: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="record overflow-hidden">
+      <div className="bg-recessed px-4 py-2.5">
+        <p className="eyebrow">{eyebrow}</p>
+      </div>
+      <div className="space-y-2 px-4 py-4">
+        <h3 className="text-lg">{title}</h3>
+        <p className="reading-muted text-sm">{lead}</p>
+      </div>
+      <div>{children}</div>
+    </section>
+  );
+}
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-background pb-20 pt-32 px-4">
-      <div className="container mx-auto max-w-3xl">
-        <Link 
-          href="/" 
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary mb-12 transition-colors group"
+    <div className="mx-auto max-w-3xl px-6 py-10">
+      <p className="eyebrow">Schedule of records</p>
+      <h1 className="mt-2 text-3xl sm:text-4xl">What we hold</h1>
+      <p className="reading-muted mt-3 max-w-2xl">
+        Finn Registry stores no package code. GitHub serves every byte anyone
+        installs, so there is no upload, no artifact and no download to log —
+        which makes this list short enough to write out in full rather than
+        describe in general terms. Revised {REVISED}.
+      </p>
+
+      <div className="mt-10 space-y-6">
+        <Record
+          eyebrow="Created when you sign in"
+          title="Your account"
+          lead="Taken from GitHub at sign-in, and refreshed each time you sign in again."
         >
-          <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
-          Back to Home
-        </Link>
+          <Field name="github_id, login">
+            Your GitHub numeric id and username. The id is what identifies the
+            account, so renaming yourself on GitHub does not orphan your entries.
+          </Field>
+          <Field name="name, avatar_url">Your GitHub display name and avatar.</Field>
+          <Field name="email">
+            Your GitHub account email. Nothing sends mail: there is no mailing
+            list, no notification, and no reset flow, because signing in goes
+            through GitHub.
+          </Field>
+          <Field name="role, is_verified">
+            Whether you are a reviewer, and whether an admin has verified you as
+            a publisher. Both are set by us, not by you.
+          </Field>
+          <Field name="bio, location, blog">
+            Columns that exist and are empty. No form writes them and no page
+            reads them.
+          </Field>
+        </Record>
 
-        <div className="flex items-center gap-4 mb-8">
-          <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20">
-            <Shield className="text-primary" size={32} />
+        <Record
+          eyebrow="Created when you sign in"
+          title="Your session"
+          lead="One row per active sign-in. Deleting the row signs that browser out immediately, which is why sessions are rows and not just signed tokens."
+        >
+          <Field name="token">
+            The value in your <span className="identifier">auth_token</span>{" "}
+            cookie, stored as issued rather than hashed — the session is found by
+            looking this value up. Anyone with database access could therefore use
+            your session until it expires. Saying so is more useful than the
+            reassuring sentence that used to be here.
+          </Field>
+          <Field name="github_access_token">
+            Your GitHub token, in plain text, for as long as the session lives.
+            It cannot be hashed: registering a name requires proving you have
+            push access to the repository, and only your own token can answer
+            that to GitHub. It is requested with the narrowest scope that works,
+            and it dies with the session.
+          </Field>
+          <Field name="expires_at">
+            When the session stops working on its own.
+          </Field>
+        </Record>
+
+        <Record
+          eyebrow="Created when you sign in"
+          title="Your sign-ins"
+          lead="One row each time, so that you can see them on your own account page and notice one you did not make."
+        >
+          <Field name="ip_address, user_agent">
+            Your address and browser string at that moment. Nothing else about the
+            visit is recorded: not the pages you opened, not what you searched
+            for, not what you resolved.
+          </Field>
+        </Record>
+
+        <Record
+          eyebrow="Created when you ask"
+          title="Your verification request"
+          lead="Only if you ask to be verified as a publisher."
+        >
+          <Field name="note">
+            Whatever evidence you wrote in the box. It goes to an admin, is kept
+            as submitted, and is never shown to you again — it is there for the
+            next reviewer, including if you ask a second time.
+          </Field>
+          <Field name="reviewer_note">
+            The reviewer&rsquo;s reason. You are shown this one.
+          </Field>
+        </Record>
+
+        <Record
+          eyebrow="In your browser"
+          title="Cookies, all three of them"
+          lead="Every cookie here is required for signing in to work. None of them measures anything, and there is no analytics script on any page."
+        >
+          <Field name="auth_token">
+            Keeps you signed in. Http-only, so no script can read it.
+          </Field>
+          <Field name="oauth_state, oauth_return">
+            Set for ten minutes while GitHub redirects you back, then deleted.
+            One prevents someone else&rsquo;s sign-in being completed in your
+            browser; the other remembers which page to return you to.
+          </Field>
+          <Field name="not a cookie">
+            Your light or dark preference is kept in{" "}
+            <span className="identifier">localStorage</span>, in your browser
+            only. It is never sent to us.
+          </Field>
+        </Record>
+
+        <section className="record overflow-hidden">
+          <div className="bg-recessed px-4 py-2.5">
+            <p className="eyebrow">Absent</p>
           </div>
-          <div>
-            <h1 className="text-4xl font-bold tracking-tight mono-text uppercase">Privacy Policy</h1>
-            <p className="text-muted-foreground">Last updated: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+          <div className="space-y-3 px-4 py-4">
+            <h3 className="text-lg">What we do not have</h3>
+            <p className="reading-muted text-sm">
+              Worth stating, because a registry is the kind of service where you
+              would reasonably assume otherwise:
+            </p>
+            <ul className="reading-muted space-y-2 text-sm">
+              <li className="ruled pt-2">
+                <span className="text-ink">No download counts.</span> The bytes
+                come from GitHub, so an install is something we cannot see even
+                if we wanted to.
+              </li>
+              <li className="ruled pt-2">
+                <span className="text-ink">No search or page logs.</span> What
+                you look up is not written down anywhere.
+              </li>
+              <li className="ruled pt-2">
+                <span className="text-ink">
+                  No analytics, tags or third-party scripts.
+                </span>{" "}
+                There is nothing on these pages from anyone but us.
+              </li>
+              <li className="ruled pt-2">
+                <span className="text-ink">No profile if you never sign in.</span>{" "}
+                Reading the register creates nothing.
+              </li>
+              <li className="ruled pt-2">
+                <span className="text-ink">No sale or sharing of any of it.</span>{" "}
+                There is no arrangement with anyone to sell.
+              </li>
+            </ul>
           </div>
-        </div>
+        </section>
 
-          <div className="prose prose-invert max-w-none space-y-8 text-muted-foreground leading-relaxed">
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">1. Introduction</h2>
-              <p>
-                At Finn Registry, we take your privacy seriously. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you visit our website and use our package registry services. We are committed to protecting your personal data and your right to privacy in accordance with applicable data protection laws, including the GDPR and CCPA.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">2. Information We Collect</h2>
-              <div className="space-y-4">
-                <p>
-                  <strong className="text-foreground">Personal Identification Information:</strong> When you authenticate via GitHub, we receive your public profile information (username, avatar URL) and your email address. This is used solely for account management and identifying package ownership.
-                </p>
-                <p>
-                  <strong className="text-foreground">Technical and Usage Data:</strong> We automatically collect information such as your IP address, browser type, operating system, and details about your interaction with the registry (e.g., package downloads, search queries). This data is used for security, performance optimization, and anonymous usage statistics.
-                </p>
-                <p>
-                  <strong className="text-foreground">Authentication Data:</strong> We store cryptographically hashed versions of your API keys and session tokens. We never store plain-text secrets.
-                </p>
-              </div>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">3. Use of Cookies</h2>
-              <p>
-                We use cookies and similar tracking technologies to track activity on our service and hold certain information. Cookies are files with a small amount of data which may include an anonymous unique identifier.
-              </p>
-              <ul className="list-disc pl-6 space-y-2">
-                <li><strong className="text-foreground">Essential Cookies:</strong> Necessary for authentication and security.</li>
-                <li><strong className="text-foreground">Functional Cookies:</strong> Used to remember your preferences (e.g., theme settings).</li>
-                <li><strong className="text-foreground">Analytics Cookies:</strong> Help us understand how the registry is being used.</li>
-              </ul>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">4. Data Sharing and Disclosure</h2>
-              <p>
-                We do not sell your personal data. We may share information with third-party service providers (like hosting platforms or authentication providers) only to the extent necessary to provide the registry services. We may also disclose data if required by law or to protect our legal rights.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">5. Your Data Protection Rights</h2>
-              <p>
-                Depending on your location, you may have the following rights:
-              </p>
-              <ul className="list-disc pl-6 space-y-2">
-                <li>The right to access, update or delete the information we have on you.</li>
-                <li>The right of rectification (correcting inaccurate information).</li>
-                <li>The right to object to or restrict processing of your data.</li>
-                <li>The right to data portability.</li>
-              </ul>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">6. Data Security and Retention</h2>
-              <p>
-                We implement industry-standard security measures to protect your data. However, no method of transmission over the internet is 100% secure. We retain account data as long as your account exists. Published package versions and metadata are retained indefinitely to ensure build reproducibility for the ecosystem.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">7. Contact Us</h2>
-              <p>
-                If you have any questions about this Privacy Policy, please contact us at <a href="mailto:legal@finn.sh" className="text-primary hover:underline">legal@finn.sh</a>.
-              </p>
-            </section>
+        <section className="record overflow-hidden">
+          <div className="bg-recessed px-4 py-2.5">
+            <p className="eyebrow">Elsewhere</p>
           </div>
+          <div className="space-y-3 px-4 py-4">
+            <h3 className="text-lg">Who else sees it</h3>
+            <p className="reading-muted text-sm">
+              Two services, both structural rather than optional.{" "}
+              <span className="text-ink">GitHub</span> authenticates you, tells us
+              whether you can push to a repository, and serves every package —
+              your use of the register is visible to GitHub in the same way your
+              use of GitHub already is.{" "}
+              <span className="text-ink">Cloudflare</span> runs the site and
+              holds the database, and terminates the connection, so it sees the
+              requests. We add nobody else.
+            </p>
+          </div>
+        </section>
+
+        <section className="record overflow-hidden">
+          <div className="bg-recessed px-4 py-2.5">
+            <p className="eyebrow">Removal</p>
+          </div>
+          <div className="space-y-3 px-4 py-4">
+            <h3 className="text-lg">Getting it deleted</h3>
+            <p className="reading-muted text-sm">
+              Signing out deletes the session row and its GitHub token. Nothing
+              else has a button yet: there is no self-service account deletion, so
+              until there is, ask a maintainer through the registry&rsquo;s
+              repository and it is done by hand. Two things are worth knowing
+              before you ask. Deleting your account releases every package name
+              you hold, and a released name can be claimed by somebody else. And
+              the register keeps a record of what reviewers decided, so if an
+              admin verified or refused you, that decision stays on file with
+              your account id even after the account is gone — a register that
+              could be made to forget its own rulings would not be a register.
+            </p>
+            <p className="reading-muted text-sm">
+              This page describes what the software does. It is not a claim to
+              comply with any particular data-protection regime; nobody has
+              audited that, and saying otherwise would be the same kind of
+              boilerplate this page was written to remove.
+            </p>
+          </div>
+        </section>
       </div>
+
+      <p className="eyebrow mt-10">
+        <Link href="/terms" className="hover:text-ink transition-colors">
+          Terms →
+        </Link>
+      </p>
     </div>
   );
 }
