@@ -1,0 +1,76 @@
+export const metadata = {
+  title: "Registering a package",
+  description:
+    "Claim a package name in the browser. There is no publish command and nothing is uploaded.",
+};
+
+# Registering a package
+
+Registering claims a name and binds it to a repository you can push to. It takes
+about a minute, it happens in a browser, and it moves no code.
+
+<NotThis>
+There is no `finn publish`, no `finn login`, and no API key. Those commands do
+not exist in the CLI and are not planned. Registration needs a GitHub OAuth
+grant to prove you can push to the repository you are claiming, and a CLI has
+nothing to prove that with — so the whole flow lives on the website. If you came
+here looking for `finn publish`, [register the name](/new) instead; it is a
+one-time step, not a per-release one.
+</NotThis>
+
+## What happens
+
+1. **Sign in with GitHub.** Signing in asks only for your account and email.
+2. **Name the repository.** We ask GitHub whether you have push access to it. No
+   human reviews this, and no exception is possible — a name claim without push
+   access would make the entire register meaningless.
+3. **Choose the name.** Bare and global: `http`, not `acme/http`. Lowercase
+   letters, digits and single hyphens, starting with a letter, 2–64 characters.
+   First claim wins.
+4. **Read the entry, then sign it.** The form shows you the exact record that
+   will go on the register before it goes there.
+
+[Register a package →](/new)
+
+## The repository access grant
+
+Signing in requests only `user:email`. The wider repository scope is requested
+later, at the moment you name a repository — so browsing the register, looking up
+a package, or reading these docs never asks for access to your code.
+
+<Callout>
+  We use that grant to read one thing: whether your account has push permission
+  on the repository you named. We do not read your code, and there is nowhere in
+  the registry for code to go.
+</Callout>
+
+## Naming conventions
+
+A Finn package repository is conventionally called `fin-<name>`, so
+`acme/fin-http` registers as `http`. That is a convention for humans; the
+registry stores whatever bare name you claimed and never derives one from the
+repository name.
+
+## After you register
+
+The name is claimed, but nothing resolves yet — a fresh entry has no version
+records, and its `latest_version` is `null`. It will say "No release yet", and
+that is accurate rather than a bug.
+
+Recording a release is a separate step and the mechanism is not settled yet. It
+will bind a version number to a git tag and the commit that tag resolves to; the
+open question is what a checksum can honestly mean, given that the registry can
+never compute one itself. See [Checksums and integrity](/docs/integrity).
+
+## Withdrawing a package
+
+Withdrawal is the publisher's decision and never a reviewer's — there is
+deliberately no control for it on the reviewers' bench — and the register marks a
+withdrawn entry wherever it appears. The control that lets a publisher set it is
+not built yet, so today it is a state the register can show and not one you can
+reach.
+
+A withdrawn entry keeps resolving, so projects that already depend on it are not
+broken, and it is no longer recommended for new work. Nothing is ever deleted from
+the register, because deleting a name would silently break every build that
+depended on it.

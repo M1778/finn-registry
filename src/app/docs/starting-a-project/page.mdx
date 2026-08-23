@@ -1,0 +1,101 @@
+export const metadata = {
+  title: "Starting a project",
+  description:
+    "finn init, the finn.toml manifest, and what ends up in your working tree.",
+};
+
+# Starting a project
+
+```bash
+finn init my-app
+```
+
+`finn init` takes a path, defaulting to the current directory, and asks three
+questions: the project name, whether it is a binary or a library, and whether to
+initialise a git repository. Answer them ahead of time with flags:
+
+| Flag                    | Effect                                              |
+| ----------------------- | --------------------------------------------------- |
+| `-y`, `--yes`           | Skip the prompts and take the defaults              |
+| `--name <name>`         | Project name; defaults to the directory name        |
+| `--template <kind>`     | `binary` or `library`                               |
+| `-f`, `--force`         | Overwrite an existing `finn.toml`                   |
+
+`--force`, `--verbose`, `--quiet` are global — they work on every `finn`
+command, not just `init`.
+
+## What you get
+
+A binary project:
+
+```text
+my-app/
+├── finn.toml       # the manifest
+├── .gitignore      # .finn/, out/, *.o, *.exe
+├── .finn/          # local environment; fetched packages land in .finn/packages
+└── src/
+    └── main.fin    # entry point
+```
+
+A library project writes `src/lib.fin` instead, plus an `exports.fin` at the root
+that re-exports it.
+
+## finn.toml
+
+```toml
+[project]
+name = "my-app"
+version = "0.1.0"
+envpath = ".finn"
+entrypoint = "main.fin"
+
+[packages]
+
+[scripts]
+```
+
+`[project]` is the only required table.
+
+`[packages]` is your dependency list. Entries are written by `finn add`, not by
+hand. The key is the package name; the value is the input you handed `finn add`,
+stored verbatim and resolved again on every sync:
+
+```toml
+[packages]
+http = "http"                 # a bare name, resolved through the register
+fin-http = "acme/fin-http"    # a slash, so straight to GitHub
+```
+
+<Callout kind="warning">
+  `[packages]`, not `[dependencies]`, and the value is a source rather than a
+  semver range. Older documentation showed `[dependencies]` with ranges like
+  `"^1.0.0"`, names like `"finn/http"`, and pins written as `#1.2.0`. None of
+  those parse — a version is pinned with `@`, exactly as `finn add` takes it.
+</Callout>
+
+`[scripts]` is a map of task name to shell command, run with `finn do`:
+
+```toml
+[scripts]
+fmt = "fin fmt src"
+ship = "finn build --release"
+```
+
+```bash
+finn do fmt
+finn do ship -- --verbose      # everything after -- goes to the script
+```
+
+## The lockfile
+
+`finn.lock` records the exact commit and checksum each dependency resolved to.
+Commit it. It is what makes a build reproducible: `finn sync` re-checks the
+installed tree against the checksum recorded there, and a version that has been
+yanked still installs for a project that already pins it.
+
+## Names
+
+The `name` in `[project]` is yours to choose locally. If you later
+[register the package](/docs/registering-a-package), the registered name is
+separate and has a stricter grammar: lowercase letters, digits and single
+hyphens, starting with a letter. Bare — `http`, never `acme/http`.

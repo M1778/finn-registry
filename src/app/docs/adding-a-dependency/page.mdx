@@ -1,0 +1,95 @@
+export const metadata = {
+  title: "Adding a dependency",
+  description:
+    "How finn add resolves a bare name through the registry to a repository and commit.",
+};
+
+# Adding a dependency
+
+```bash
+finn add http
+finn add http@1.2.0
+```
+
+`finn add` writes the dependency into `[packages]` in `finn.toml`, fetches it,
+and records the exact commit it resolved to in `finn.lock`.
+
+## How a name resolves
+
+`finn add` decides what you meant from the shape of the input, in this order:
+
+| You type                            | finn does                                          |
+| ----------------------------------- | -------------------------------------------------- |
+| `http`                              | Asks the registry which repository `http` means     |
+| `acme/fin-http`                     | Treats it as GitHub shorthand, skipping the registry |
+| `https://github.com/acme/fin-http`  | Uses the URL directly, skipping the registry         |
+
+Only the first form consults the register. **A slash always means GitHub** — that
+is permanent, and it is why registered names are bare (`http`, not `acme/http`).
+
+Append `@` and a version to pin one: `finn add http@1.2.0`. Versions are exact,
+not ranges — the registry answers for a version it has a record of, and refuses
+anything else.
+
+<Callout kind="warning">
+  Pinning with `@` works today for a GitHub shorthand or a URL. Against a bare
+  registry name it does not: `finn` asks the register for `http@1.2.0` as though
+  the whole string were the name, so the lookup 404s. That is a known bug on the
+  CLI side, not a name missing from the register.
+</Callout>
+
+## What the registry actually returns
+
+A repository URL, who stands behind the name, and one trust level. Trimmed here to
+the fields a resolve turns on:
+
+```json
+{
+  "name": "http",
+  "repo_url": "https://github.com/acme/fin-http",
+  "latest_version": "1.2.0",
+  "publisher": { "login": "acme", "is_verified": true },
+  "trust": { "level": "verified" }
+}
+```
+
+No commit appears in that record. Commits belong to the version records, one
+request further on, where a single version resolves in one call — the full shape
+of both is on the [HTTP API](/docs/api) page.
+
+`finn` then clones or fetches from `repo_url` at the commit recorded for that
+version. Your bytes come from GitHub, over your own connection, and the registry
+never sees them.
+
+## What finn says about trust
+
+Every entry on the register carries one trust level, and `finn` prints a line
+about it rather than asking you anything. A *recognized* package — on the
+register, repository ownership proven, nobody has vouched for it yet — is the
+ordinary case: one line, then it installs.
+
+The question is kept for a source the register has never seen at all: a raw Git
+URL, a GitHub shorthand, or a local path. There `finn` shows where the code comes
+from and asks, defaulting to no, with `--yes` to answer it in a script.
+`--verified-only` refuses anything below *trusted*. See
+[Trust and seals](/docs/trust).
+
+## The other commands
+
+| Command              | What it does                                              |
+| -------------------- | --------------------------------------------------------- |
+| `finn sync`          | Installs everything in the manifest, honouring the lockfile |
+| `finn remove <pkg>`  | Drops a dependency and its files                           |
+| `finn clean`         | Removes `out/` and any stray object files                  |
+| `finn install <pkg>` | Installs a package as a global binary, not a project dependency |
+| `finn healthcheck`   | Reads `finn.toml` and reports which dependencies are present |
+
+<Callout kind="warning">
+  `finn update` exists as a command but is not implemented — it prints a notice
+  and changes nothing. To move a dependency, edit the pin in `finn.toml` and run
+  `finn sync`.
+</Callout>
+
+## In CI
+
+Use `finn sync`, commit `finn.lock`, and see [Continuous integration](/docs/ci).

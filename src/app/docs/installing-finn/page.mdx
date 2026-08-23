@@ -1,0 +1,72 @@
+export const metadata = {
+  title: "Installing finn",
+  description: "Install the Finn CLI from a release, or build it from source.",
+};
+
+# Installing finn
+
+`finn` is a single binary. It needs the Fin compiler on your `PATH` to build
+anything, but not to resolve or fetch packages.
+
+## From a release
+
+The install script detects your platform and unpacks the matching release
+archive from GitHub into `~/.finn/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/M1778M/finn/master/install.sh | sh
+```
+
+On Windows, use the installer from the
+[releases page](https://github.com/M1778M/finn/releases).
+
+<Callout>
+  Neither works yet: no `finn` release has been tagged, so the script and the
+  installer both have nothing to download and the releases page is empty. Build
+  from source until the first one lands.
+</Callout>
+
+<Callout kind="warning">
+  Read a script before you pipe it to a shell — this one included. It writes to
+  `~/.finn/bin` and adds nothing to your shell profile, so you will need to put
+  that directory on your `PATH` yourself.
+</Callout>
+
+## From source
+
+If you have a Rust toolchain, this is the shortest path and always builds the
+current `master`:
+
+```bash
+git clone https://github.com/M1778M/finn
+cd finn
+cargo install --path .
+```
+
+## Check it worked
+
+```bash
+finn --help
+```
+
+There is no `finn --version`, so `--help` is what tells you the binary is on your
+`PATH` and runnable.
+
+`finn healthcheck` is a different tool than its name suggests: run inside a
+project it reads `finn.toml`, prints the project name and version, and says which
+dependencies are present in `.finn/packages`. It does not look for the compiler
+and it does not contact the registry, and outside a project it fails rather than
+reporting anything.
+
+## Pointing at a different registry
+
+`finn` talks to `https://finn-registry.pages.dev` unless a project says
+otherwise. To override it, add a `[registry]` table to `finn.toml`:
+
+```toml
+[registry]
+url = "https://registry.example.internal"
+```
+
+Anything you point it at has to answer the same endpoints — see the
+[HTTP API](/docs/api).

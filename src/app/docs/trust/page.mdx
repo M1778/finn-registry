@@ -1,0 +1,107 @@
+export const metadata = {
+  title: "Trust and seals",
+  description:
+    "Verified publisher, trusted package, recognized, withdrawn — what each seal asserts and what it does not.",
+};
+
+# Trust and seals
+
+The registry publishes one field, `trust.level`, with one of three values. `finn`
+branches on that field alone and never on the underlying signals.
+
+| Seal                    | What it asserts                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------- |
+| **Verified publisher**  | A human reviewer confirmed the account is who it claims to be                          |
+| **Trusted package**     | A moderator vouched for this one package on its own merits                             |
+| **Recognized**          | On the register, with repository ownership proven. The ordinary state                   |
+
+A fourth mark, **Withdrawn**, is not a trust level — it is the publisher's own
+statement about an entry, and it can apply at any level.
+
+## Two signals, not a ladder
+
+Verification and trust are independent, and mixing them up is the single easiest
+mistake to make here.
+
+- **Publishers are verified.** Verification is about *identity* and nothing else.
+  It says the account is really Acme Corp. It says nothing about whether Acme
+  writes good code. It travels to everything that publisher registers, before and
+  after the review.
+- **Packages are trusted.** A moderator can mark one package trustworthy without
+  the publisher being verified at all. A good package from someone nobody has
+  heard of can earn this on its own merits.
+
+A package is never *verified*, and a publisher is never *trusted*. The wording is
+load-bearing, and the seals use it strictly.
+
+## The promotion path
+
+Accumulating trusted packages is grounds for verifying the publisher behind them.
+So the second signal is a route to the first, rather than a weaker version of it —
+which is why an unknown individual with three well-regarded packages is not stuck
+at the bottom forever.
+
+Moderators mark packages trusted. Admins verify publishers. Which role someone
+holds never reaches `finn`; the CLI only ever sees the derived level.
+
+## Who ruled, and when
+
+The register keeps minutes. Verifying a publisher, refusing a request, vouching
+for a package and withdrawing a vouch each write one entry naming the reviewer,
+the subject and the time, and nothing edits or deletes one afterwards — a
+corrected ruling is a new entry rather than a rewritten one.
+
+Those minutes are visible to reviewers on the bench and nowhere else. Nothing on
+the wire carries them, `trust.level` stays the only trust field `finn` reads, and
+a package vouched for before the register kept minutes says exactly that instead
+of being given a plausible one. The reasoning is in
+[ADR-0006](https://github.com/M1778M/finn-registry/blob/master/docs/adr/0006-the-register-keeps-minutes.md).
+
+## Recognized is not a warning
+
+Almost everything on the register is recognized, and that is fine. It means the
+name was claimed by someone who provably controls the repository it points at —
+which is a real guarantee, and the one that makes "registered by X" worth
+anything. It is deliberately not decorated with an icon: the ordinary case should
+not look either endorsed or deficient.
+
+## What finn does with it
+
+`verified` and `trusted` each get a line naming who stands behind the package.
+`recognized` gets a line too, and then the install proceeds — it is the ordinary
+state of the register, and stopping to ask about it would raise a dialog on
+almost every install, which is how people learn to dismiss the one that mattered.
+
+The question is kept for what the register has never seen: a raw Git URL, a GitHub
+shorthand, or a local path. There `finn` shows the source and asks, defaulting to
+no, and where there is no terminal to ask at it fails rather than hanging. A
+project that wants a higher floor sets `--verified-only`, which refuses anything
+below `trusted`.
+
+<Callout kind="warning">
+  This section describes what `finn` is agreed to do, not what it does today. The
+  shipped `install` refuses any source it does not consider official unless you
+  pass `--ignore-regulations`, and `finn add` does not consult trust at all. The
+  agreement lives in §2.5 of the registry contract; until the CLI catches up,
+  read this as the target.
+</Callout>
+
+<Callout>
+  No seal is an endorsement by the Fin project of code the Fin project has never
+  read. There is no blessed set of packages and no first-party namespace. A seal
+  describes what a reviewer checked, and nothing else.
+</Callout>
+
+## Asking to be verified
+
+Verification is requested, then reviewed by a human admin. Requests are queued
+per account rather than per package, so the queue is bounded by how many
+publishers exist rather than by how often they release.
+
+## Withdrawn
+
+A withdrawn package keeps resolving, so an existing dependency does not break,
+and it is flagged wherever it appears. Withdrawal is the publisher's call rather
+than a reviewer's, and the control that sets it is not built yet; either way the
+registry deletes nothing. See
+[Registering a package](/docs/registering-a-package).

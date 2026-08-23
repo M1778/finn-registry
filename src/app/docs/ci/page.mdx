@@ -1,0 +1,96 @@
+export const metadata = {
+  title: "Continuous integration",
+  description:
+    "Installing dependencies in CI with finn sync. Releases are not automated, and there is no token to configure.",
+};
+
+# Continuous integration
+
+CI needs one command, `finn sync`, and no credentials at all. The registry's read
+endpoints are public, and the code comes from GitHub over the runner's own network.
+
+<NotThis>
+There is no `FINN_TOKEN`, no `finn publish`, and no release step to automate.
+Registering a name is a one-time browser flow ([Registering a package](/docs/registering-a-package)),
+not something a pipeline does per release. Earlier documentation shipped a
+workflow that logged in with a secret and published on tag; none of those commands
+exist.
+</NotThis>
+
+## GitHub Actions
+
+```yaml
+name: build
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install finn
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/M1778M/finn/master/install.sh | sh
+          echo "$HOME/.finn/bin" >> "$GITHUB_PATH"
+
+      - name: Cache downloaded packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.finn/cache/registry
+          key: finn-${{ hashFiles('finn.lock') }}
+
+      - run: finn sync
+      - run: finn build
+```
+
+Two details in that are load-bearing. The installer writes to `~/.finn/bin` and
+deliberately does not edit any shell profile, so the `GITHUB_PATH` line is what
+makes `finn` runnable in later steps. And `git` must be on the runner — `finn`
+clones from GitHub rather than downloading archives. Both are true on
+`ubuntu-latest` already. One thing is not yet true anywhere: no `finn` release has
+been tagged, so the install step has nothing to fetch until the first one lands —
+see [Installing finn](/docs/installing-finn).
+
+## Commit the lockfile
+
+`finn.lock` records the exact commit each dependency resolved to, and `finn sync`
+verifies the installed tree against the checksum recorded there. Without the
+lockfile in version control, CI resolves afresh and that check has nothing to
+compare against — which is the whole protection described in
+[Checksums and integrity](/docs/integrity).
+
+## Caching
+
+Packages are cloned into `~/.finn/cache/registry` and copied from there into the
+project's `.finn/packages`. Caching that directory is what turns a sync from a
+series of clones into a series of copies.
+
+<Callout kind="warning">
+  Key the cache on `finn.lock`, as above, and not on the branch or a fixed string.
+  A cache entry is addressed by the dependency's source URL and version, and
+  `finn` reuses an existing entry without re-fetching — so a dependency pinned to a
+  branch rather than a version will keep resolving to whatever was cached the first
+  time. Keying on the lockfile means a changed pin means a new cache.
+</Callout>
+
+Do not cache `.finn/packages` itself. It is derived from the cache and from
+`finn.lock`, and a stale copy there is skipped rather than replaced unless you pass
+`--force`.
+
+## Keeping CI off the rate limit
+
+`finn sync` asks the registry to resolve each bare-name dependency on every run,
+so a busy repository behind a shared runner IP can accumulate requests quickly.
+Two things help: the cache above, which removes the clone but not the resolve, and
+writing a dependency as `acme/fin-http` where you do not need the register's
+resolution — that form skips the registry entirely. See
+[Rate limits](/docs/rate-limits).
+
+## Releasing
+
+There is nothing to run. A release is a git tag in your own repository, and no
+pipeline step tells the register about it: recording a version is a separate
+mechanism, and it is not settled yet. See
+[Registering a package](/docs/registering-a-package) for what that step does and
+does not yet cover.

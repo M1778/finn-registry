@@ -1,0 +1,146 @@
+export const metadata = {
+  title: "HTTP API",
+  description:
+    "The read endpoints finn calls, what they return, and why none of them need authentication.",
+};
+
+# HTTP API
+
+Everything the CLI needs is a public GET. There is no authentication, no token, and
+no key.
+
+<NotThis>
+There are no API keys and no `Authorization` header. There is no `POST /publish`.
+The endpoints that create records require a browser session and a GitHub OAuth
+grant, which is not something a CLI can hold — so registration is a website flow
+and the API surface `finn` talks to is read-only. Earlier documentation described
+JWT tokens and `fn_`-prefixed keys; those are gone.
+</NotThis>
+
+## Base URL
+
+```text
+https://finn-registry.pages.dev/api
+```
+
+`finn` uses that unless a project overrides it with a `[registry]` table in
+`finn.toml`. Responses are JSON, and every field name is `snake_case`.
+
+## Resolve one package
+
+```text
+GET /api/packages/:name
+```
+
+```json
+{
+  "name": "http",
+  "description": "An HTTP client and server for Fin",
+  "repo_url": "https://github.com/acme/fin-http",
+  "homepage": null,
+  "license": "Apache-2.0",
+  "keywords": ["net", "http"],
+  "latest_version": "1.2.0",
+  "publisher": {
+    "login": "acme",
+    "display_name": "Acme Corp",
+    "avatar_url": "https://avatars.githubusercontent.com/u/1",
+    "kind": "organization",
+    "is_verified": true
+  },
+  "trust": {
+    "level": "verified",
+    "publisher_verified": true,
+    "package_trusted": true,
+    "repo_ownership_confirmed": true
+  },
+  "is_deprecated": false,
+  "deprecation_message": null,
+  "created_at": "2026-08-01T00:00:00Z",
+  "updated_at": "2026-08-20T00:00:00Z"
+}
+```
+
+That is the whole record — there is no field the response omits when it happens to
+be empty. `latest_version` is `null` when nothing has been released; it is never a
+default, and never `"1.0.0"`. `license` is whatever GitHub reports for the
+repository, not what the publisher typed.
+
+`404` returns `{"error": "not_found", "message": "..."}`. A 404 means the name is
+not on the register — nothing else does.
+
+## Versions
+
+```text
+GET /api/packages/:name/versions
+GET /api/packages/:name/versions/:version
+```
+
+Each record carries `version`, `git_ref`, `commit`, `checksum`,
+`checksum_origin`, `yanked` and `published_at`. The single-version form adds
+`repo_url` so one request is enough to resolve.
+
+Versions are **exact only**. Range syntax is the CLI's job. A non-exact version
+returns `400 {"error": "invalid_version"}`, deliberately not a 404 — a 404 must
+only ever mean "no such name", so an unresolvable range can never be mistaken for
+a missing package.
+
+## Search and browse
+
+```text
+GET /api/packages?q=&sort=&trust=&limit=&offset=
+```
+
+| Parameter | Values                          |
+| --------- | ------------------------------- |
+| `q`       | free text over name and description |
+| `sort`    | `recent`, `updated`, `name`     |
+| `trust`   | `verified`, `trusted` — "at least this level" |
+| `limit`   | 1–100, default 25               |
+| `offset`  | integer                          |
+
+Returns `{ "total": 42, "items": [...] }`.
+
+<Callout>
+  `sort=downloads` and `sort=stars` return `400 invalid_sort`, and there is no
+  `downloads` field on any response. Nothing increments a download count and stars
+  are not recorded, so the number would be `0` on every package in the register —
+  which reads as "nobody uses this" rather than "we do not measure this". There is
+  no `category` filter either — the column exists on the table with a default of
+  `"Utilities"`, which is to say nobody has ever chosen one.
+</Callout>
+
+## Health
+
+```text
+GET /api/health
+```
+
+`{"status": "ok", "time": "..."}`. Nothing calls it yet — despite the name,
+`finn healthcheck` reads `finn.toml` and never contacts the registry. It is here so
+that a client *can* tell "the registry is down" apart from "your package does not
+exist", which are the same 404-shaped disappointment without it.
+
+## Error envelope
+
+Every error is `{"error": "<code>", "message": "<human sentence>"}`. Branch on
+`error`; `message` is written for a person and may be reworded.
+
+| Code              | Status | When                                          |
+| ----------------- | ------ | --------------------------------------------- |
+| `not_found`       | 404    | No such name, or no record of that version    |
+| `invalid_version` | 400    | A range or partial where an exact version goes |
+| `invalid_sort`    | 400    | A `sort` value outside the three allowed       |
+| `invalid_trust`   | 400    | A `trust` value that is not a trust level      |
+| `rate_limited`    | 429    | See [Rate limits](/docs/rate-limits)          |
+
+Treat `5xx` as retryable with backoff, and never as "package does not exist". Only
+a `404` means that.
+
+## The full contract
+
+The authoritative version, including the endpoints the CLI must *not* call and the
+questions still open, is
+[`docs/REGISTRY-CONTRACT.md`](https://github.com/M1778M/finn-registry/blob/master/docs/REGISTRY-CONTRACT.md)
+in the registry repository. If this page and that document disagree, that document
+is right and this page is stale — please open an issue.
