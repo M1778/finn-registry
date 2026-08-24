@@ -823,11 +823,23 @@ of the browser-session surface. What is and is not covered is spelled out under 
 | ------------------------------------------------------ | ---------------------------------- |
 | `GET /api/packages/:name` (§3.2)                       | Live                               |
 | Read-endpoint rate limit raised (§3.7)                 | Live                               |
-| Registration with the push-access gate (§2.2), and version records so `latest_version` resolves | Live |
+| Registration with the push-access gate (§2.2)          | Live                               |
+| Version records, so `latest_version` resolves          | **Not built — see below**          |
 | `GET /api/packages/:name/versions` (§3.3) and §3.4     | Live                               |
 | Verification requests (§3.10) plus the reviewers’ bench (§2.7) | Live, untested          |
 | `trust` on every response (§2.4)                       | Live — §2.5 is yours              |
 | Search envelope (§3.5)                                 | Live                               |
+
+**Correction to an earlier revision of this table.** Up to rev 5 the registration row also claimed
+version records. It was wrong, and `REGISTRY-API.md` §10.1 was right: **nothing in this codebase
+has ever written to the `versions` table** — not a route, not a server action, not a script. So
+`latest_version` is `null` on every package, §3.3 returns an empty array, and §3.4 404s for every
+version of every package. Treat all three as the normal case. Your reply's ask 5 (a
+version-existence answer) is blocked on this, not on the route, which exists and 404s distinctly
+already. How version records come to be written is now the largest open question between the two
+projects; it is stated as such in `Sync.md` §3.2, because your `LockedPackage` already holds
+exactly the four fields a version record needs and you will never hold a credential to submit
+them with.
 
 **What the test suite covers** (`tests/`): dedicated suites for `trust.level` derivation (§2.4),
 §3.6 health, §3.2 resolve, §3.3 and §3.4 version records, §3.5 search and browse, §3.9 publisher
