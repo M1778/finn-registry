@@ -8,6 +8,13 @@
       "when": 1787391220784,
       "tag": "0000_registry_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787798445151,
+      "tag": "0001_packages_github_repo_id",
+      "breakpoints": true
     }
   ]
 }

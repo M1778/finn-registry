@@ -96,6 +96,22 @@ export const packages = sqliteTable(
     description: text("description"),
     /** The content server. Every registration points at one (ADR-0001, ADR-0004). */
     repoUrl: text("repo_url").notNull(),
+    /**
+     * GitHub's own numeric id for that repository, captured at registration out
+     * of the same response that proved push access.
+     *
+     * `repo_url` is not an identity. A rename or a transfer changes it, and the
+     * `owner/repo` a rename frees can be claimed by somebody else — so a URL
+     * match alone would eventually let a stranger's tag pushes land on the
+     * original publisher's name. This id never changes for the life of the
+     * repository, so it is what a webhook delivery is matched against before it
+     * may write a version record (ADR-0007).
+     *
+     * Null on rows registered before this column existed. Those fall back to
+     * matching on the URL, which is the weaker case and is named rather than
+     * hidden.
+     */
+    githubRepoId: integer("github_repo_id"),
     homepage: text("homepage"),
     license: text("license"),
     keywords: text("keywords"), // JSON string array
@@ -130,6 +146,10 @@ export const packages = sqliteTable(
     index("packages_updated_at_idx").on(t.updatedAt),
     index("packages_owner_id_idx").on(t.ownerId),
     index("packages_organization_id_idx").on(t.organizationId),
+    // Read once per webhook delivery, which is once per release: rare, but the
+    // alternative is a full table scan on the one query that decides whether a
+    // version record may be written at all.
+    index("packages_github_repo_id_idx").on(t.githubRepoId),
   ],
 );
 

@@ -27,6 +27,13 @@ import {
   verifyCaptcha,
 } from "@/lib/captcha";
 import { canonicalRepoUrl, checkPushAccess, parseGitHubRepo } from "./github";
+import {
+  EVENT_HEADER,
+  SIGNATURE_HEADER,
+  interpretPush,
+  isDuplicateVersion,
+  verifyDeliverySignature,
+} from "./webhook";
 import { isoTimestamp, serializePackage, serializeVersionWithRepo } from "./serializers";
 import { isExactVersion } from "./semver";
 /**
@@ -1000,6 +1007,11 @@ app.post("/packages", registerLimit, async (c) => {
         // but if they say nothing GitHub's own description is the honest default.
         description: trimmedText(body.description, 500) ?? access.repo.description,
         repoUrl: canonicalRepoUrl(ref),
+        // Captured here and nowhere else: this is the one moment the registry
+        // has GitHub's own answer for this repository in hand. Without it a
+        // later tag-push delivery has only the URL to match on, and a URL is not
+        // an identity (ADR-0007).
+        githubRepoId: access.repoId,
         ownerId: auth.id,
         homepage: homepageOrNull(body.homepage) ?? access.repo.homepage,
         // The licence is whatever GitHub reports for the repository right now,
@@ -1038,6 +1050,213 @@ app.post("/packages", registerLimit, async (c) => {
 
     console.error("[REGISTRATIONS] Create error:", err);
     return internalError(c, "The registration could not be recorded. Try again in a moment.");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Version records (§3.3, §3.4) — the GitHub App's delivery endpoint
+// ---------------------------------------------------------------------------
+
+/**
+ * The only writer of version records anywhere in the registry (ADR-0007).
+ *
+ * A publisher installs the registry's GitHub App on a repository they can
+ * administer; GitHub then delivers a `push` event here, and a push that creates a
+ * tag naming a version becomes a row in `versions`. Nobody has to be present, and
+ * the registry never calls GitHub back — every field of the record is read out of
+ * the delivery, so the App is an inbound identity and not an outbound credential.
+ *
+ * Not a §3 endpoint, and not for `finn`: no CLI reaches this, there is no captcha
+ * on it and there is no session behind it. Its one caller is GitHub, and its one
+ * form of authentication is the HMAC below.
+ *
+ * WHY SO MANY 200s. A GitHub App has *one* delivery URL shared by every
+ * installation, and GitHub disables a hook that keeps failing. So a 4xx here is
+ * not a message to one publisher — it is a step towards switching the write path
+ * off for all of them. The split is therefore: defects in the *request* get a 4xx
+ * (unconfigured, unsigned, unparseable), and decisions about a *valid* delivery
+ * get a 200 that says what was decided.
+ */
+app.post("/webhooks/github", async (c) => {
+  const secret = process.env.GITHUB_WEBHOOK_SECRET;
+
+  // No default, and no degraded mode. `CAPTCHA_SECRET`'s random-per-isolate
+  // fallback is safe there because an unforgeable random key only costs a reader
+  // an extra challenge; the same fallback here would reject *every* delivery,
+  // because the other end of this secret is configured on GitHub and cannot be
+  // re-derived. And a literal default would be a published forgery key. So the
+  // variable is either set or the write path is closed, and the refusal names it.
+  if (!secret || secret.length < 16) {
+    return c.json(
+      {
+        error: "webhook_unconfigured",
+        message:
+          "This registry has no GITHUB_WEBHOOK_SECRET set, so it cannot tell a " +
+          "real delivery from a forged one and accepts neither.",
+      },
+      503,
+    );
+  }
+
+  // Text first. The signature covers the bytes GitHub sent, so those are the
+  // bytes that must be verified — parsing and re-serializing produces a
+  // different document, and a signature over a document nobody acted on proves
+  // nothing.
+  const rawBody = await c.req.text();
+
+  const signed = await verifyDeliverySignature({
+    secret,
+    rawBody,
+    header: c.req.header(SIGNATURE_HEADER),
+  });
+  if (!signed) {
+    return c.json(
+      {
+        error: "invalid_signature",
+        message: `This delivery has no valid ${SIGNATURE_HEADER}, so its body was not read.`,
+      },
+      401,
+    );
+  }
+
+  const event = c.req.header(EVENT_HEADER) ?? "";
+
+  // GitHub sends this when the App is installed, and treats the answer as
+  // proof the endpoint exists. It carries no payload worth reading.
+  if (event === "ping") {
+    return c.json({ status: "ok", event: "ping" }, 200);
+  }
+
+  if (event !== "push") {
+    return c.json(
+      { status: "ignored", reason: `A "${event || "nameless"}" event names no version.` },
+      200,
+    );
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    // Signed and still unreadable is a defect in the request rather than a
+    // decision about it, so this is the one push that gets a 4xx.
+    return badRequest(c, "invalid_request", "The delivery body is signed but is not JSON.");
+  }
+
+  const reading = interpretPush(payload);
+  if (reading.kind === "ignore") {
+    return c.json({ status: "ignored", reason: reading.reason }, 200);
+  }
+
+  try {
+    const currentDb = getDb(c.env);
+
+    const repoRef = parseGitHubRepo(reading.repoFullName);
+    // `lower(...)` because GitHub's `full_name` carries the repository's real
+    // casing while `repo_url` carries whatever the registrant typed, and SQLite's
+    // `=` on text is case-sensitive. GitHub's own comparison is not.
+    const urlKey = repoRef ? canonicalRepoUrl(repoRef).toLowerCase() : null;
+
+    const candidates = await currentDb
+      .select({
+        id: packages.id,
+        name: packages.name,
+        githubRepoId: packages.githubRepoId,
+      })
+      .from(packages)
+      .where(
+        reading.repoId === null
+          ? sql`lower(${packages.repoUrl}) = ${urlKey}`
+          : urlKey === null
+            ? eq(packages.githubRepoId, reading.repoId)
+            : or(
+                eq(packages.githubRepoId, reading.repoId),
+                sql`lower(${packages.repoUrl}) = ${urlKey}`,
+              ),
+      );
+
+    // The security check, and the reason the id column exists. A package whose
+    // recorded id disagrees with the delivery's is a package whose repository
+    // moved and whose old `owner/repo` somebody else now holds — so the URL match
+    // is refused rather than followed. A null id is a row registered before the
+    // column existed: the URL is all there is, and that is the weaker case.
+    const eligible = candidates.filter(
+      (pkg) => pkg.githubRepoId === null || pkg.githubRepoId === reading.repoId,
+    );
+
+    if (eligible.length === 0) {
+      return c.json(
+        {
+          status: "ignored",
+          reason:
+            `No registered name points at ${reading.repoFullName}. A name is claimed ` +
+            "by proving push access (ADR-0004); installing the App does not claim one.",
+        },
+        200,
+      );
+    }
+
+    // `repo_url` is not unique, so two names may legitimately point at one
+    // repository. Each gets its own row, and each is separately immutable.
+    const recorded: string[] = [];
+    const alreadyRecorded: string[] = [];
+
+    for (const pkg of eligible) {
+      try {
+        await currentDb
+          .insert(versions)
+          .values({
+            id: crypto.randomUUID(),
+            packageId: pkg.id,
+            version: reading.version,
+            // The tag as pushed, `v` and all: provenance, not the coordinate.
+            gitRef: reading.tag,
+            commit: reading.commit,
+            // Never populatable on this path. The App does not see the bytes
+            // (ADR-0001) and a Worker cannot clone a repository, so an attested
+            // checksum would have to be attested by somebody — and nobody is
+            // here. Absent beats invented.
+            checksum: null,
+            checksumOrigin: null,
+            yanked: false,
+            createdAt: sqliteNow(),
+          });
+        recorded.push(pkg.name);
+      } catch (err) {
+        // The unique index on (package_id, version) is what enforces §2.11 here.
+        // GitHub retries deliveries, so this is the ordinary case rather than an
+        // error: the version is already recorded, and a re-delivery must not
+        // repoint it. A tag force-pushed to a different commit lands here too,
+        // and the original commit standing is exactly what §2.11 asks for — the
+        // record becomes evidence of the discrepancy instead of losing it.
+        if (isDuplicateVersion(err)) {
+          alreadyRecorded.push(pkg.name);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    // D1 has no transaction across statements, so a two-name delivery can
+    // half-fail. That costs nothing here: every insert is independent and
+    // idempotent, and GitHub's redelivery closes the gap.
+    return c.json(
+      {
+        status: recorded.length > 0 ? "recorded" : "already_recorded",
+        version: reading.version,
+        git_ref: reading.tag,
+        commit: reading.commit,
+        recorded,
+        already_recorded: alreadyRecorded,
+      },
+      recorded.length > 0 ? 201 : 200,
+    );
+  } catch (err) {
+    console.error("[WEBHOOK] Version record error:", err);
+    // A 5xx is the one thing that should make GitHub retry, and it retries on
+    // exactly this. The delivery was genuine and the registry failed, which is
+    // the case redelivery exists for.
+    return internalError(c, "The version record could not be written. GitHub will retry.");
   }
 });
 
