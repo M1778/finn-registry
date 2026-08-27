@@ -1,0 +1,89 @@
+export const metadata = {
+  title: "Rate limits",
+  description:
+    "What the free tier allows, how a 429 tells you when to retry, and why the ceiling is approximate.",
+};
+
+# Rate limits
+
+The registry runs on a free tier, and the limits below exist so that one caller
+cannot spend the whole day's allowance. They are generous for ordinary use: a
+project with forty dependencies costs forty requests.
+
+| Bucket                              | Ceiling                 |
+| ----------------------------------- | ----------------------- |
+| Reads — everything `finn` calls     | 1000 per 15 min per IP  |
+| Writes — browser session endpoints  | 100 per 15 min per IP   |
+| Registering a name                  | 30 per 15 min per IP    |
+| Signing in with GitHub              | 10 per 5 min per IP     |
+
+Limits are per IP address, not per account, because the read endpoints have no
+account attached to them.
+
+## Reading your budget
+
+Every response carries three headers:
+
+```text
+X-RateLimit-Limit: 1000
+X-RateLimit-Remaining: 987
+X-RateLimit-Reset: 1755820800
+```
+
+`Reset` is a Unix timestamp in seconds. A `429` adds `Retry-After`, also in
+seconds:
+
+```json
+{
+  "error": "rate_limited",
+  "message": "Too many read requests from this IP. Retry with backoff.",
+  "retryAfter": 226,
+  "limit": 1000,
+  "remaining": 0,
+  "reset": 1755820800
+}
+```
+
+Wait `Retry-After` and try again. The window is fixed rather than sliding, so a
+wait that long always clears — there is no benefit to retrying sooner and no need
+to escalate a backoff past it.
+
+<Callout kind="warning">
+  A `429` is never a statement about a package. Neither is a `5xx`. Only a `404`
+  means a name is not on the register, so a rate-limited request must be retried
+  rather than cached as absence.
+</Callout>
+
+## The ceiling is approximate, and only ever upward
+
+Requests are counted per server rather than in one shared place, so a burst can
+occasionally get more headroom than the table promises. It will never get less.
+Treat the numbers above as the floor you can rely on, and do not read a burst that
+succeeded as evidence the limit is not enforced.
+
+## The limit that actually matters
+
+The free tier allows **100,000 requests per day for the whole registry**, across
+every user. The per-IP ceilings above are there to protect that number. If you are
+writing a tool that talks to the registry, that shared allowance is the figure to
+design against:
+
+- **Sequential with backoff beats a burst.** A large `finn sync` is the heaviest
+  thing that ever reaches this API. Requests in sequence cost you a few seconds;
+  a parallel burst that trips the limit fails the whole sync and you retry all of
+  it.
+- **Ask for one package at a time, but only once.** `finn sync` consults the
+  registry once per bare-name dependency, every run — the lockfile pins the commit
+  but the name still has to be resolved to a repository.
+- **Dependencies written as `acme/fin-http` or a full URL cost nothing.** Those
+  skip the registry entirely and go straight to GitHub. If a CI job is hitting the
+  limit and you cannot cache, that is the lever.
+- **Nothing about the ceiling is per package.** Requesting `http` a thousand times
+  and requesting a thousand different names cost the same.
+
+## If you are running this in CI
+
+Caching `~/.finn/cache/registry` removes the clones from GitHub, not the lookups
+here — a bare name is resolved again on every run. The lever for registry traffic
+is writing a dependency as `acme/fin-http` where you do not need the register's
+resolution. See [Continuous integration](/docs/ci).

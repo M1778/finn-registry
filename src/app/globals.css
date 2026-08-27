@@ -1,76 +1,535 @@
-/* Updated: 2025-12-23T12:06:02.418Z */
-/* Updated: 2025-12-23T12:05:29.867Z */
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
+/* ---------------------------------------------------------------------------
+   Finn Registry design system
+
+   The registry is a register: a ledger of names, owners, and countersignatures.
+   Every choice below comes from that, not from a generic dark theme.
+
+   Three rules hold the system together:
+
+   1. Colour is semantic, never decorative. Brass means "verified publisher".
+      Verdigris means "trusted package". Oxblood means "withdrawn, refused, or
+      unusable". Nothing else may use them — not a hover state, not a primary
+      button, not a chart. A button that borrows brass makes brass mean
+      "clickable", and the trust signals stop signalling.
+
+      Corollary, because forms need it: a check that *passed* is set in neutral
+      ink with a check glyph, never in verdigris. Verdigris in this product
+      means one thing, and "valid input" is not it. A check that *failed* may
+      use oxblood, which already carries "do not rely on this".
+
+   2. Radius encodes kind. Records are documents, so they are square-edged.
+      A pill is a seal, and only trust seals are pills. The default Tailwind
+      radius scale is redefined below so this holds everywhere at once,
+      including inside vendored components.
+
+   3. Identifiers are set in mono. Package names, versions, commits and
+      checksums are things a person types or diffs, and the register treats
+      them as data rather than prose. Mono is a primary face here, not a
+      caption face.
+   --------------------------------------------------------------------------- */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --color-border: var(--border);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Structural surfaces. `raised` is a document laid on the ground; `recessed`
+     is a well cut into it (code, checksums, terminal transcripts). */
+  --color-ground: var(--ground);
+  --color-raised: var(--raised);
+  --color-recessed: var(--recessed);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+
+  /* Trust pigments. Reserved. See rule 1. */
+  --color-brass: var(--brass);
+  --color-brass-wash: var(--brass-wash);
+  --color-verdigris: var(--verdigris);
+  --color-verdigris-wash: var(--verdigris-wash);
+  --color-oxblood: var(--oxblood);
+  --color-oxblood-wash: var(--oxblood-wash);
+
+  --font-display: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-newsreader), ui-serif, Georgia, serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, monospace;
+
+  /* Rule 2, applied to the whole scale so vendored components inherit it.
+     `rounded-full` is deliberately left alone: that is the seal. */
+  --radius-xs: 1px;
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 3px;
+  --radius-xl: 3px;
+  --radius-2xl: 4px;
+  --radius-3xl: 4px;
+  --radius-4xl: 4px;
+
+  --radius-document: 2px;
+  --radius-seal: 9999px;
 }
 
-:root {
-  --background: #ffffff;
-  --foreground: #0a0a0a;
-  --border: #e5e5e5;
-  --primary: #000000;
-  --primary-foreground: #ffffff;
-  --muted: #f5f5f5;
-  --muted-foreground: #737373;
-  --accent: #f5f5f5;
-  --accent-foreground: #000000;
-  --radius: 0.5rem;
-}
-
+/* Dark is the default ground, not an alternate. The paper theme below is the
+   alternate. next-themes writes `.light` or `.dark` onto <html>; `:root`
+   carries the dark values so the first paint is correct with no class at all
+   and there is no flash of the wrong theme. */
+:root,
 .dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  --border: #1f1f1f;
-  --primary: #ffffff;
-  --primary-foreground: #000000;
-  --muted: #171717;
-  --muted-foreground: #a3a3a3;
-  --accent: #171717;
-  --accent-foreground: #ffffff;
+  --ground: #12151b;
+  --raised: #1a1f27;
+  --recessed: #0d1015;
+  --rule: #262c36;
+  --rule-strong: #39414f;
+  --ink: #e6e4dd;
+  --ink-muted: #949caa;
+  --ink-faint: #646c7a;
+
+  --brass: #b4924f;
+  --brass-wash: #251f12;
+  --verdigris: #4e9b86;
+  --verdigris-wash: #10221d;
+  --oxblood: #b8503f;
+  --oxblood-wash: #26120f;
+
+  --background: var(--ground);
+  --foreground: var(--ink);
+  --card: var(--raised);
+  --card-foreground: var(--ink);
+  --popover: var(--raised);
+  --popover-foreground: var(--ink);
+  /* Primary is neutral on purpose. The accents are spoken for. */
+  --primary: #e6e4dd;
+  --primary-foreground: #12151b;
+  --secondary: #222834;
+  --secondary-foreground: var(--ink);
+  --muted: #1e2430;
+  --muted-foreground: var(--ink-muted);
+  --accent: #222834;
+  --accent-foreground: var(--ink);
+  --destructive: var(--oxblood);
+  --destructive-foreground: #f7ece9;
+  --border: var(--rule);
+  --input: var(--rule-strong);
+  --ring: #6b7789;
+
+  --sidebar: var(--raised);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: #e6e4dd;
+  --sidebar-primary-foreground: #12151b;
+  --sidebar-accent: #222834;
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--rule);
+  --sidebar-ring: #6b7789;
+}
+
+/* Paper. Same pigments, reground for a light surface: brass and verdigris are
+   darkened so they still pass contrast against paper rather than glowing. */
+.light {
+  --ground: #eaede6;
+  --raised: #f5f7f1;
+  --recessed: #dee2d7;
+  --rule: #c8cec0;
+  --rule-strong: #a8b09c;
+  --ink: #191d17;
+  --ink-muted: #565d52;
+  --ink-faint: #7b8375;
+
+  --brass: #7a6122;
+  --brass-wash: #ece4cd;
+  --verdigris: #2f6a59;
+  --verdigris-wash: #d9e7e1;
+  --oxblood: #8e3627;
+  --oxblood-wash: #f0dcd8;
+
+  --background: var(--ground);
+  --foreground: var(--ink);
+  --card: var(--raised);
+  --card-foreground: var(--ink);
+  --popover: var(--raised);
+  --popover-foreground: var(--ink);
+  --primary: #191d17;
+  --primary-foreground: #f5f7f1;
+  --secondary: #dee2d7;
+  --secondary-foreground: var(--ink);
+  --muted: #e1e5db;
+  --muted-foreground: var(--ink-muted);
+  --accent: #dee2d7;
+  --accent-foreground: var(--ink);
+  --destructive: var(--oxblood);
+  --destructive-foreground: #f7ece9;
+  --border: var(--rule);
+  --input: var(--rule-strong);
+  --ring: #6c7564;
+
+  --sidebar: var(--raised);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: #191d17;
+  --sidebar-primary-foreground: #f5f7f1;
+  --sidebar-accent: #dee2d7;
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--rule);
+  --sidebar-ring: #6c7564;
 }
 
 @layer base {
+  * {
+    border-color: var(--border);
+  }
+
   body {
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
+    /* Archivo's default tracking is loose for interface text at these sizes. */
+    letter-spacing: -0.011em;
+  }
+
+  /* Headings are signage: tight, condensed, unapologetic. */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    text-wrap: balance;
+  }
+
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-mono);
+    font-feature-settings: "ss02" on;
+  }
+
+  /* One visible focus treatment for the whole app, in the neutral ring colour
+     so it never reads as a trust signal. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--rule-strong);
+    color: var(--ink);
+  }
+}
+
+@layer components {
+  /* An eyebrow is a field label on a form: it names what follows. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  /* Every identifier in the register: names, versions, commits, checksums. */
+  .identifier {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    letter-spacing: -0.02em;
+  }
+
+  /* A record is a document laid on the ground: square, hairlined, flat. */
+  .record {
+    background-color: var(--raised);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-document);
+  }
+
+  /* A well is cut into the page: checksums, transcripts, code. */
+  .well {
+    background-color: var(--recessed);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-document);
+  }
+
+  /* Seals are the only round things in the system. Rule 2. */
+  .seal {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: var(--radius-seal);
+    border: 1px solid currentColor;
+    padding: 0.125rem 0.5rem 0.125rem 0.4375rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .seal-verified {
+    color: var(--brass);
+    background-color: var(--brass-wash);
+  }
+
+  .seal-trusted {
+    color: var(--verdigris);
+    background-color: var(--verdigris-wash);
+  }
+
+  /* Recognized is the floor, not a warning: registered, ownership proven.
+     It is deliberately quiet rather than red. */
+  .seal-recognized {
+    color: var(--ink-muted);
+    background-color: var(--muted);
+  }
+
+  .seal-withdrawn {
+    color: var(--oxblood);
+    background-color: var(--oxblood-wash);
+  }
+
+  /* Long-form prose: package descriptions, docs, READMEs. */
+  .reading {
+    font-family: var(--font-body);
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    color: var(--ink);
+  }
+
+  .reading-muted {
+    font-family: var(--font-body);
+    line-height: 1.6;
+    color: var(--ink-muted);
+  }
+
+  /* Markdown we did not write: a rendered README.
+
+     This is what `@tailwindcss/typography` would otherwise be for, and it was
+     tried. The plugin cannot be used here. Its `.prose` lands in the utilities
+     layer, so its colour beats `.reading` in this layer, and `prose-invert` is
+     an unconditional class with no theme in it — on the paper theme a README
+     came out at 1.25:1 against `--ground` where `--ink` gives 14.44:1. The
+     plugin's whole colour layer would have had to be neutralised token by
+     token to get back to where the tokens already are, so the elements are
+     styled here instead, off the same variables as everything else.
+
+     Selectors are descendants because the markup comes from ReactMarkdown and
+     there is no call site to put a class on. `.readme x` is (0,1,1), so it
+     beats `.reading` alongside it without !important, and the `[&_...]`
+     utilities on the element still win over both. */
+  .readme > * + * {
+    margin-top: 1.1em;
+  }
+
+  .readme h1,
+  .readme h2,
+  .readme h3,
+  .readme h4,
+  .readme h5,
+  .readme h6 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+    color: var(--ink);
+    margin-top: 2em;
+  }
+
+  .readme > :first-child {
+    margin-top: 0;
+  }
+
+  .readme h1 { font-size: 1.6em; }
+  .readme h2 { font-size: 1.35em; }
+  .readme h3 { font-size: 1.15em; }
+  .readme h4,
+  .readme h5,
+  .readme h6 { font-size: 1em; }
+
+  /* A README's own h1 usually repeats the package name, which the page has
+     already set in the header, so it is ruled off rather than shouted. */
+  .readme h1,
+  .readme h2 {
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .readme a {
+    color: var(--ink);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  .readme strong { font-weight: 600; color: var(--ink); }
+  .readme em { font-style: italic; }
+
+  .readme ul,
+  .readme ol {
+    padding-left: 1.5em;
+  }
+
+  .readme ul { list-style: disc; }
+  .readme ol { list-style: decimal; }
+  .readme li + li { margin-top: 0.35em; }
+  .readme li > ul,
+  .readme li > ol { margin-top: 0.35em; }
+
+  /* An identifier, same as everywhere else in the register (rule 3). */
+  .readme code {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    letter-spacing: -0.02em;
+    font-size: 0.9em;
+    background-color: var(--recessed);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-xs);
+    padding: 0.1em 0.35em;
+  }
+
+  .readme pre {
+    background-color: var(--recessed);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-xs);
+    padding: 0.9rem 1rem;
+    line-height: 1.5;
+  }
+
+  /* Inside a fence the box is the `pre`, so the `code` drops its own. */
+  .readme pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: 0.875rem;
+  }
+
+  .readme blockquote {
+    border-left: 2px solid var(--rule-strong);
+    padding-left: 1em;
+    color: var(--ink-muted);
+  }
+
+  .readme hr {
+    border: 0;
+    border-top: 1px solid var(--rule);
+  }
+
+  .readme table {
+    border-collapse: collapse;
+    border: 1px solid var(--rule);
+    font-size: 0.9375rem;
+  }
+
+  .readme th,
+  .readme td {
+    border: 1px solid var(--rule);
+    padding: 0.375rem 0.75rem;
+    text-align: left;
+  }
+
+  .readme th {
+    font-family: var(--font-display);
+    font-weight: 600;
+    background-color: var(--recessed);
+  }
+
+  .readme img {
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-xs);
+  }
+
+  /* Shields and badges travel in rows and are not documents. */
+  .readme img[src*="shields.io"],
+  .readme img[src*="badge"] {
+    border: 0;
+    border-radius: 0;
+    display: inline-block;
   }
 }
 
 @layer utilities {
+  /* Ruled paper. The register's one piece of ambient texture: horizontal
+     hairlines at the body baseline, so the page reads as a ledger sheet. */
+  .ruled {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      var(--rule) 0px,
+      var(--rule) 1px,
+      transparent 1px,
+      transparent 2rem
+    );
+  }
+
+  .rule-top {
+    border-top: 1px solid var(--rule);
+  }
+
+  .rule-bottom {
+    border-bottom: 1px solid var(--rule);
+  }
+
+  /* Retained for existing markup; realigned to the record/well vocabulary. */
   .dev-border {
-    border: 1px solid var(--border);
+    border: 1px solid var(--rule);
   }
 
   .dev-card {
-    background-color: color-mix(in srgb, var(--muted) 30%, transparent);
-    border-radius: var(--radius);
+    background-color: var(--raised);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-document);
     padding: 1.5rem;
-    transition: all 0.2s;
-    border: 1px solid var(--border);
+    transition:
+      border-color 0.15s ease,
+      background-color 0.15s ease;
   }
 
   .dev-card:hover {
-    background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+    border-color: var(--rule-strong);
   }
 
   .mono-text {
     font-family: var(--font-mono);
-    letter-spacing: -0.025em;
+    letter-spacing: -0.02em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

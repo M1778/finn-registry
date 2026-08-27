@@ -33,6 +33,8 @@ dist-ssr
 
 # Next.js
 /.next/
+# The Worker build output. Derived from /.next/, and 40MB of it.
+/.open-next/
 /out/
 
 # Production
@@ -47,3 +49,11 @@ dist-ssr
 *.sqlite
 
 .docs/
+
+# Incremental TypeScript build state. Local to a machine and regenerated on
+# every `tsc` run.
+tsconfig.tsbuildinfo
+
+# Claude Code machine-local preferences. The shared config (.agents/) is tracked;
+# this file holds one developer's skill/permission overrides.
+.claude/settings.local.json

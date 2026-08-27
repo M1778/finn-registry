@@ -1,0 +1,148 @@
+export const metadata = {
+  title: "HTTP API",
+  description:
+    "The read endpoints finn calls, what they return, and why none of them need authentication.",
+};
+
+# HTTP API
+
+Everything the CLI needs is a public GET. There is no authentication, no token, and
+no key.
+
+<NotThis>
+There are no API keys and no `Authorization` header. There is no `POST /publish`.
+The endpoints that create records require a browser session and a GitHub OAuth
+grant, which is not something a CLI can hold — so registration is a website flow
+and the API surface `finn` talks to is read-only.
+</NotThis>
+
+## Base URL
+
+There is no fixed one, and `finn` has none compiled in. Every path below is
+relative to whatever base it resolved, and it appends `/api/...` itself.
+
+`finn` looks in two places, in this order:
+
+| | Where | Wins when |
+| --- | --- | --- |
+| 1 | `[registry].url` in `finn.toml`, or `$FINN_REGISTRY_URL` | always — an address you gave ends discovery |
+| 2 | the pointer file `registry/v1/url.txt`, read over HTTPS from this repository's default branch and cached for 24 hours | you gave none |
+
+<Callout>
+  Tier 2 has no address to give today: nothing has been deployed, the pointer
+  publishes no URL, and it is not on the default branch yet either. So `finn`
+  reports that it knows of no registry — not that your package does not exist.
+  Set `$FINN_REGISTRY_URL` to talk to your own in the meantime. Once a deployment
+  exists, one line in the pointer file reaches every installed `finn` without a
+  release.
+</Callout>
+
+Responses are JSON, and every field name is `snake_case`.
+
+## Resolve one package
+
+```text
+GET /api/packages/:name
+```
+
+```json
+{
+  "name": "http",
+  "description": "An HTTP client and server for Fin",
+  "repo_url": "https://github.com/acme/fin-http",
+  "homepage": null,
+  "license": "Apache-2.0",
+  "keywords": ["net", "http"],
+  "latest_version": "1.2.0",
+  "publisher": {
+    "login": "acme",
+    "display_name": "Acme Corp",
+    "avatar_url": "https://avatars.githubusercontent.com/u/1",
+    "kind": "organization",
+    "is_verified": true
+  },
+  "trust": {
+    "level": "verified",
+    "publisher_verified": true,
+    "package_trusted": true,
+    "repo_ownership_confirmed": true
+  },
+  "is_deprecated": false,
+  "deprecation_message": null,
+  "created_at": "2026-08-01T00:00:00Z",
+  "updated_at": "2026-08-20T00:00:00Z"
+}
+```
+
+That is the whole record — there is no field the response omits when it happens to
+be empty. `latest_version` is `null` when nothing has been released; it is never a
+default, and never `"1.0.0"`. `license` is whatever GitHub reports for the
+repository, not what the publisher typed.
+
+`404` returns `{"error": "not_found", "message": "..."}`. A 404 means the name is
+not on the register — nothing else does.
+
+## Versions
+
+```text
+GET /api/packages/:name/versions
+GET /api/packages/:name/versions/:version
+```
+
+Each record carries `version`, `git_ref`, `commit`, `checksum`,
+`checksum_origin`, `yanked` and `published_at`. The single-version form adds
+`repo_url` so one request is enough to resolve.
+
+Versions are **exact only**. Range syntax is the CLI's job. A non-exact version
+returns `400 {"error": "invalid_version"}`, deliberately not a 404 — a 404 must
+only ever mean "no such name", so an unresolvable range can never be mistaken for
+a missing package.
+
+## Search and browse
+
+```text
+GET /api/packages?q=&sort=&trust=&limit=&offset=
+```
+
+| Parameter | Values                          |
+| --------- | ------------------------------- |
+| `q`       | free text over name and description |
+| `sort`    | `recent`, `updated`, `name`     |
+| `trust`   | `verified`, `trusted` — "at least this level" |
+| `limit`   | 1–100, default 25               |
+| `offset`  | integer                          |
+
+Returns `{ "total": 42, "items": [...] }`.
+
+<Callout>
+  `sort=downloads` and `sort=stars` return `400 invalid_sort`, and no response
+  carries a `downloads` field: the register does not measure installs or stars, so
+  it does not report them. There is no `category` filter either.
+</Callout>
+
+## Health
+
+```text
+GET /api/health
+```
+
+`{"status": "ok", "time": "..."}`. Nothing calls it yet — no `finn` command
+contacts the registry to ask whether it is up. It is here so that a client *can*
+tell "the registry is down" apart from "your package does not exist", which are
+the same 404-shaped disappointment without it.
+
+## Error envelope
+
+Every error is `{"error": "<code>", "message": "<human sentence>"}`. Branch on
+`error`; `message` is written for a person and may be reworded.
+
+| Code              | Status | When                                          |
+| ----------------- | ------ | --------------------------------------------- |
+| `not_found`       | 404    | No such name, or no record of that version    |
+| `invalid_version` | 400    | A range or partial where an exact version goes |
+| `invalid_sort`    | 400    | A `sort` value outside the three allowed       |
+| `invalid_trust`   | 400    | A `trust` value that is not a trust level      |
+| `rate_limited`    | 429    | See [Rate limits](/docs/rate-limits)          |
+
+Treat `5xx` as retryable with backoff, and never as "package does not exist". Only
+a `404` means that.

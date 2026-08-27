@@ -1,0 +1,55 @@
+# Copy to `.dev.vars` for local development. `.dev.vars` is gitignored; this file
+# is the checked-in list of what has to be set, so keep the two in step.
+#
+# Only GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET and CAPTCHA_SECRET are secrets.
+# In production they are set with `wrangler secret put`, never in
+# wrangler.jsonc, which is committed.
+
+# A GitHub OAuth app. Sign-in asks for `user:email` only; the wider repository
+# scope is requested incrementally at registration (ADR-0004), so create the app
+# with no special permissions. Set its callback URL to
+# <APP_URL>/api/auth/github/callback.
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+
+# Signing key for the proof-of-work challenges the browser forms carry. Any
+# random string of 16 characters or more; `openssl rand -hex 32` is fine. It
+# is not shared with anyone and can be rotated at will — rotating only costs
+# whoever is mid-form one extra challenge.
+#
+# Leave it unset and each isolate invents its own random key instead, which
+# still cannot be forged but does mean a challenge issued by one isolate will
+# not verify in another. The browser retries once, so this shows up as an
+# occasional second wait rather than a failure. Set it in production.
+CAPTCHA_SECRET=
+
+# Where this instance is reachable. Required: it is the only source of the
+# origin, and sign-in refuses and names it rather than falling back. It used to
+# be optional, with the origin guessed from the `Host`/`X-Forwarded-Host` header
+# when it was unset — a header a client controls does not get to help decide
+# where an OAuth code is sent. It has to match the GitHub app's registered
+# callback exactly, port included; a mismatch is GitHub's `redirect_uri_mismatch`
+# and reads as the OAuth app being misconfigured, which is a different problem.
+#
+# Not a secret, so production sets it in wrangler.jsonc's `vars` rather than
+# with `wrangler secret put`. Deploying to a different host means changing it
+# in both places.
+APP_URL=http://localhost:3000
+
+# The same value, but NOT what sign-in reads, and the distinction matters.
+# `NEXT_PUBLIC_*` is inlined by Next at build time, so it is fixed when the
+# artifact is built and no runtime var can change it. It exists for
+# `metadataBase` in src/app/layout.tsx, where baking it in is correct because the
+# metadata ends up in prerendered HTML regardless.
+#
+# The router reads only APP_URL. It used to prefer this variable, which meant a
+# stray `.env.local` on a build machine froze that machine's origin into the
+# deployed callback URL and left APP_URL unreachable. If you only set this one,
+# sign-in will refuse and name APP_URL — that refusal is correct, not a bug.
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Local development only. The Worker uses the `DB` D1 binding from
+# wrangler.jsonc; this file-backed libsql URL is what stands in for it when the
+# binding is absent, which is why `getDb()` needs no arguments in either
+# environment. Leave it unset and it defaults to `file:local.db`.
+DATABASE_URL=file:local.db

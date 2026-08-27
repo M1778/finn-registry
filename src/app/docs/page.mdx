@@ -1,0 +1,39 @@
+export const metadata = {
+  title: "What this is",
+  description:
+    "What the register records for every Fin package: the name, the publisher behind it, the repository, and the commit each version resolves to.",
+};
+
+# What this is
+
+Finn Registry is the register of record for Fin packages. It holds the claim that
+a name belongs to a publisher, points at a repository, and resolves to a commit.
+
+When `finn add http` runs, the register answers with the repository that name
+belongs to and, for a release, the tag and the commit that tag resolved to. That
+is what `finn` needs to fetch exactly the code you asked for.
+
+## What the register holds
+
+For each package name:
+
+| Recorded                          | Not recorded                        |
+| --------------------------------- | ----------------------------------- |
+| The bare name                     | Download counts                     |
+| The publisher standing behind it  | Stars, ratings, popularity          |
+| The repository it points at       | A checksum we computed ourselves    |
+| Each version, and its git commit  | A licence the publisher typed       |
+| A publisher-supplied checksum     |                                     |
+| Whether it was withdrawn          |                                     |
+
+Nothing here is estimated. A register that shows a number nobody measured has
+invented it, so the right-hand column stays empty instead. The licence shown is
+the one GitHub reports for the repository, because a licence is a legal statement
+about someone's code and the register repeats only what it can check.
+
+## Where to go next
+
+- [Installing finn](/docs/installing-finn) — get the CLI.
+- [Adding a dependency](/docs/adding-a-dependency) — how resolution works.
+- [Registering a package](/docs/registering-a-package) — claim a name.
+- [Trust and seals](/docs/trust) — what a verified or trusted mark asserts.

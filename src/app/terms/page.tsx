@@ -1,111 +1,180 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { Scale, ArrowLeft } from "lucide-react";
+
+/**
+ * The terms.
+ *
+ * Clauses are numbered here, unlike everywhere else in this interface, because a
+ * term of use is a thing people cite: "clause 4" has to mean something stable to
+ * whoever is arguing about it. Numbering carries referenceability, which is
+ * information, rather than decoration.
+ *
+ * What was here before was assembled from a template for a company that hosts
+ * code. It bound the reader to a "Finn Foundation" that does not exist, took a
+ * worldwide licence to host and distribute packages the registry never receives
+ * (ADR-0001), promised that published versions are immutable when the register
+ * holds only a pointer to a Git tag the publisher can delete at will, referred
+ * to API keys that were removed, and set governing law to the jurisdiction of
+ * the nonexistent foundation. Terms that describe a different service are worse
+ * than none: the one thing a reader needs from this page is an accurate account
+ * of what they are relying on.
+ */
+
+export const metadata: Metadata = {
+  title: "Terms",
+  description:
+    "What Finn Registry does and does not promise: no licence to your code, no guarantee about anything installed, and what a name claim actually gets you.",
+};
+
+const REVISED = "2026-08-22";
+
+const CLAUSES = [
+  {
+    heading: "We take no licence to your code",
+    body: (
+      <>
+        Registering a name gives us a row containing your package name, a
+        description, and the URL of your repository. It does not give us your
+        code, and we ask for no licence to it. Your repository stays under
+        whatever licence you put in it, and our copy of that licence field is a
+        label, not a grant.
+      </>
+    ),
+  },
+  {
+    heading: "A claim on a name is not ownership of it",
+    body: (
+      <>
+        To claim a name you prove you can push to the repository it points at.
+        That is all the claim asserts. Names are held, not owned: a maintainer can
+        release a name that was claimed to squat, to impersonate, or in error, and
+        can transfer one when a project moves. We will say who asked and why when
+        we do it.
+      </>
+    ),
+  },
+  {
+    heading: "A version record points into your repository",
+    body: (
+      <>
+        A version record names a tag and the commit that tag resolved to, and both
+        live in your repository. Delete the tag, force-push over it, rename the
+        repository or make it private, and the record stands while what it points
+        at stops resolving, so installs of that version will fail. The commit hash
+        is what protects you meanwhile: if the contents behind it change, the pin
+        stops matching, so a substitution is visible rather than silent.
+      </>
+    ),
+  },
+  {
+    heading: "A seal is about people, not about code",
+    body: (
+      <>
+        Nobody here reads, scans, builds or signs your package. A{" "}
+        <span className="text-brass">verified publisher</span> means a human
+        checked that an account is who it says it is. A{" "}
+        <span className="text-verdigris">trusted package</span> means one reviewer
+        vouched for one package. Neither is a security audit, a warranty of
+        fitness, or a promise that a future version will be like the one that was
+        vouched for. Everything you install, you install on your own judgement —
+        the register exists to tell you whose judgement you are borrowing, and
+        that is a narrower service than it may look like.{" "}
+        <Link
+          href="/docs/trust"
+          className="underline decoration-transparent underline-offset-4 transition-colors hover:decoration-current"
+        >
+          What each seal asserts
+        </Link>
+        .
+      </>
+    ),
+  },
+  {
+    heading: "What gets an entry removed",
+    body: (
+      <>
+        Malware, credential theft, impersonation of another person or
+        organisation, names claimed to mislead, and anything we are required by
+        law to remove. Judged by a maintainer, case by case, and recorded. An
+        entry can be withdrawn without notice when leaving it up would put people
+        at risk, and you can appeal by asking. There is no automated scanning
+        behind this, so it is a response to what gets reported rather than a sweep
+        — do not read the absence of a removal as a clean bill of health.
+      </>
+    ),
+  },
+  {
+    heading: "You are responsible for your session",
+    body: (
+      <>
+        Signing in sets a cookie that identifies you to us until it expires or you
+        sign out. Anyone holding it can act as you here, so sign out on machines
+        that are not yours. There are no API keys and no CLI login — nothing you
+        can leak in a script or commit to a repository, which is the reason it
+        works this way.
+      </>
+    ),
+  },
+  {
+    heading: "No warranty, no entity, no promise it stays up",
+    body: (
+      <>
+        This register is free, run by volunteers, and offered as it is. There is
+        no company behind it and no service agreement to appeal to. It may be
+        slow, it may be wrong, it may go down, and it may one day stop. Keep your
+        lockfiles: they pin commits and resolve without us.
+      </>
+    ),
+  },
+  {
+    heading: "These terms will change",
+    body: (
+      <>
+        When the register does something new, this page gets a new clause and a new
+        date rather than a general reservation of the right to amend. Reading it
+        again is the only notice we can offer, since nothing here sends mail.
+      </>
+    ),
+  },
+];
 
 export default function TermsPage() {
   return (
-    <div className="min-h-screen bg-background pb-20 pt-32 px-4">
-      <div className="container mx-auto max-w-3xl">
-        <Link 
-          href="/" 
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary mb-12 transition-colors group"
-        >
-          <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
-          Back to Home
+    <div className="mx-auto max-w-3xl px-6 py-10">
+      <p className="eyebrow">Terms of use</p>
+      <h1 className="mt-2 text-3xl sm:text-4xl">What we do and do not promise</h1>
+      <p className="reading-muted mt-3 max-w-2xl">
+        Eight clauses, written to be read rather than accepted. Most of what a
+        registry&rsquo;s terms usually cover does not apply here, because this one
+        stores no code — so what is left is mainly a list of the things you should
+        not rely on us for. Revised {REVISED}.
+      </p>
+
+      <ol className="mt-10 space-y-6">
+        {CLAUSES.map((clause, i) => (
+          <li key={clause.heading} className="record overflow-hidden">
+            <div className="bg-recessed flex items-baseline gap-3 px-4 py-2.5">
+              <span className="identifier text-ink-faint text-xs">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <p className="eyebrow">{clause.heading}</p>
+            </div>
+            <p className="reading px-4 py-4 text-sm">{clause.body}</p>
+          </li>
+        ))}
+      </ol>
+
+      <p className="reading-muted mt-8 text-sm">
+        Questions, disputes and removal requests go to a maintainer through the
+        registry&rsquo;s repository. There is no legal department to write to; the
+        people who would read a letter are the people who wrote this page.
+      </p>
+
+      <p className="eyebrow mt-10">
+        <Link href="/privacy" className="hover:text-ink transition-colors">
+          What we hold about you →
         </Link>
-
-        <div className="flex items-center gap-4 mb-8">
-          <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20">
-            <Scale className="text-primary" size={32} />
-          </div>
-          <div>
-            <h1 className="text-4xl font-bold tracking-tight mono-text uppercase">Terms of Service</h1>
-            <p className="text-muted-foreground">Last updated: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
-          </div>
-        </div>
-
-          <div className="prose prose-invert max-w-none space-y-8 text-muted-foreground leading-relaxed">
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">1. Acceptance of Terms</h2>
-              <p>
-                By accessing or using Finn Registry ("the Service"), you agree to be bound by these Terms of Service. If you do not agree to these terms, you may not use the Service. These terms constitute a legally binding agreement between you and Finn Foundation.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">2. Use of the Service</h2>
-              <div className="space-y-4">
-                <p>
-                  <strong className="text-foreground">Eligibility:</strong> You must be at least 13 years of age to use this Service. By using the Service, you represent and warrant that you meet this requirement.
-                </p>
-                <p>
-                  <strong className="text-foreground">Account Security:</strong> You are responsible for maintaining the confidentiality of your API keys and session tokens. You agree to notify us immediately of any unauthorized use of your account.
-                </p>
-              </div>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">3. Package Distribution and Intellectual Property</h2>
-              <div className="space-y-4">
-                <p>
-                  <strong className="text-foreground">License Grant:</strong> By publishing a package, you grant Finn Registry a non-exclusive, worldwide, royalty-free license to host, distribute, and display your package.
-                </p>
-                <p>
-                  <strong className="text-foreground">Immutability:</strong> To maintain the integrity of the ecosystem, published package versions are immutable. You acknowledge that you cannot delete or modify a version once it is published, except in rare cases of legal compliance or critical security issues as determined by the registry maintainers.
-                </p>
-                <p>
-                  <strong className="text-foreground">Ownership:</strong> You retain all ownership rights to the code you publish, subject to the license you provide.
-                </p>
-              </div>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">4. Prohibited Conduct</h2>
-              <p>You agree not to:</p>
-              <ul className="list-disc pl-6 space-y-2">
-                <li>Distribute malware, spyware, or any malicious code.</li>
-                <li>Engage in name-squatting or intentional package confusion (typosquatting).</li>
-                <li>Attempt to gain unauthorized access to our systems or other users' accounts.</li>
-                <li>Use the Service for any illegal purpose or in violation of any local, state, national, or international law.</li>
-                <li>Reverse engineer or attempt to extract the source code of the Service.</li>
-              </ul>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">5. Termination</h2>
-              <p>
-                We reserve the right to suspend or terminate your access to the Service at our sole discretion, without notice, for conduct that we believe violates these Terms or is harmful to other users, the Service, or third parties, or for any other reason.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">6. Disclaimer of Warranties</h2>
-              <p>
-                THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED. WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">7. Limitation of Liability</h2>
-              <p>
-                TO THE MAXIMUM EXTENT PERMITTED BY LAW, FINN FOUNDATION SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR REVENUES, WHETHER INCURRED DIRECTLY OR INDIRECTLY.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">8. Governing Law</h2>
-              <p>
-                These Terms shall be governed by and construed in accordance with the laws of the jurisdiction in which the Finn Foundation is registered, without regard to its conflict of law provisions.
-              </p>
-            </section>
-
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mono-text uppercase tracking-tight">9. Contact</h2>
-              <p>
-                Questions about the Terms of Service should be sent to <a href="mailto:legal@finn.sh" className="text-primary hover:underline">legal@finn.sh</a>.
-              </p>
-            </section>
-          </div>
-      </div>
+      </p>
     </div>
   );
 }

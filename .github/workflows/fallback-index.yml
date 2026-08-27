@@ -1,0 +1,322 @@
+name: Fallback index
+
+# ---------------------------------------------------------------------------
+# Regenerate registry/v1/packages.json from the register, and commit it only
+# when what a client resolves with has actually changed.
+#
+# The fallback index is what `finn` reads when the live API is unreachable
+# (docs/REGISTRY-API.md §12). It duplicates package -> repository data that lives
+# in D1, which is exactly why it is generated rather than maintained: a
+# hand-edited copy becomes a second, wrong source of truth about where a
+# package's code lives, consulted at the moment the client has nothing else to
+# check it against. Sync.md §3.1 records the same decision on the finn side.
+#
+# ---------------------------------------------------------------------------
+# THIS WORKFLOW IS DELIBERATELY INERT
+# ---------------------------------------------------------------------------
+#
+# It has no `push` trigger and its `schedule` is commented out, so nothing runs
+# it until someone dispatches it by hand, and a manual dispatch does not commit
+# unless the `commit` box is ticked. Three reasons, and all three expire:
+#
+#   1. `master` does not carry the generator, the pointer, or the index yet —
+#      they are on the implementation branch, and that merge is not this job's
+#      to make. The preflight step below fails on any ref that lacks them,
+#      loudly and in one line, before touching anything.
+#   2. `wrangler.jsonc` still has `"database_id": "REPLACE_WITH_D1_DATABASE_ID"`,
+#      so there is no production D1 to read. Also checked in the preflight.
+#   3. A job that pushes commits should be watched the first few times it runs.
+#
+# When those are settled: fill in the database id, merge the branch, dispatch
+# once with `commit` off and read the summary, then uncomment the `schedule`.
+#
+# ---------------------------------------------------------------------------
+# CREDENTIALS: A D1 READ FROM CI IS NOT POSSIBLE WITHOUT A SECRET
+# ---------------------------------------------------------------------------
+#
+# Stated plainly, because it was worth checking rather than assuming: **D1 has no
+# unauthenticated read path.** There is no public endpoint for a D1 database; the
+# only ways in are the Cloudflare REST API and `wrangler d1`, and both want
+# `CLOUDFLARE_API_TOKEN` (plus `CLOUDFLARE_ACCOUNT_ID` to pick the account).
+#
+# The good news is that this needs **no new secret**: those are the same two the
+# `deploy` job in deploy.yml already passes to `npm run db:apply`, and a token
+# that can apply migrations to a database can certainly read one. So the secret
+# requirement here is exactly "what a D1 read requires" and not a byte more.
+#
+# The alternative considered and rejected: read the live API instead
+# (`GET /api/packages` carries `repo_url`, `trust` and `latest_version`, and
+# needs no credentials at all). It was rejected because it derives the fallback
+# from the service the fallback exists to survive. An outage produces no index; a
+# serializer regression produces a confidently wrong one; and the file would stop
+# being derived from the register and start being derived from another derivation
+# of it. The generator reads the register, and that is the property worth keeping.
+#
+# ---------------------------------------------------------------------------
+# THE `generated_at`-ONLY DIFF: SKIPPED, NOT COMMITTED
+# ---------------------------------------------------------------------------
+#
+# Entries are sorted for byte-stable output, so a run against an unchanged
+# register produces a one-line diff in which `generated_at` is the only field
+# that moved. **This job does not commit that diff.** `scripts/check-fallback-index.mjs`
+# compares the two files with `generated_at` removed and reports `changed=false`,
+# and the commit step is skipped. Why:
+#
+#   1. `git log registry/v1/packages.json` is a security property, not a
+#      changelog. This repository is the trust root for package resolution
+#      (Sync.md §3.1: whoever can push here redirects every finn user), and the
+#      mitigation that comes free from it being public is that every change to
+#      what clients read is publicly auditable. A daily no-op commit destroys
+#      exactly that signal: it trains a reviewer to skim the one path where
+#      skimming is most expensive. Every commit to this file should mean the
+#      answer a client gets has changed.
+#   2. Nothing reads the field, and the client that would has said so in writing.
+#      finn's `src/discovery.rs` deserializes `generated_at` into a field marked
+#      `#[allow(dead_code)]`, with the comment that it is "explicitly **not** a
+#      cache directive: it is the only field that moves when nothing else has, so
+#      treating a change in it as invalidation would re-download an unchanged
+#      index forever." Committing that change every day is the write-side of the
+#      same mistake.
+#   3. Skipping makes the field mean something better. Committed on every run it
+#      says "when the job last ran", which the Actions history already says.
+#      Skipped, it says "when these contents were generated" — which is a fact
+#      about the data, and the one a reader would actually want.
+#
+# The cost, recorded rather than waved away: a stale `generated_at` no longer
+# distinguishes "the register has not changed" from "the job has been broken for
+# a month". That is a real loss, and it is paid for by the run history — a green
+# scheduled run that committed nothing is the liveness evidence, visible in the
+# Actions tab and in this job's step summary without touching the file. If that
+# ever proves too indirect, the fix is an alert on the workflow, not a commit.
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit the index if its contents changed (off = dry run)'
+        type: boolean
+        default: false
+        required: false
+
+  # Uncomment once the three conditions in the header are settled. Off the hour
+  # on purpose: GitHub's scheduler queues heavily at :00.
+  # schedule:
+  #   - cron: '27 4 * * *'
+
+# Two runs pushing to the same ref would race. Never cancel one in flight: this
+# job commits, and a run killed between the guard and the push is a worse state
+# than a run that finishes late.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Same reasoning as deploy.yml: wrangler refuses to start below 22.
+  NODE_VERSION: '22'
+
+jobs:
+  regenerate:
+    name: Regenerate the fallback index
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Needed by exactly one step, the commit at the end. Everything before it
+      # is a read and a guard, and the guard's whole job is to make sure that
+      # step never runs against a file it should not.
+      contents: write
+    env:
+      # On a schedule there are no inputs, so a scheduled run commits; a manual
+      # dispatch commits only when asked. Computed once here so the two triggers
+      # cannot drift apart.
+      COMMIT: ${{ github.event_name == 'schedule' || inputs.commit }}
+      INDEX: registry/v1/packages.json
+      # The three scratch paths are set in Preflight rather than here: the
+      # `runner` context is not available in `jobs.<id>.env`, so `runner.temp`
+      # would silently expand to nothing at this level.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      # Everything this job needs, checked before it needs it. Each failure here
+      # is a one-line explanation instead of an opaque error three steps later.
+      - name: Preflight
+        run: |
+          set -euo pipefail
+          status=0
+
+          for path in scripts/build-fallback-index.mjs scripts/check-fallback-index.mjs registry/v1/url.txt; do
+            if [ ! -f "$path" ]; then
+              echo "::error::$path is missing. This workflow only runs on a ref that carries the generator and the pointer file; ${GITHUB_REF_NAME} does not."
+              status=1
+            fi
+          done
+
+          if grep -q 'REPLACE_WITH_D1_DATABASE_ID' wrangler.jsonc; then
+            echo "::error::wrangler.jsonc still has a placeholder database_id, so the production D1 database has not been created yet and there is nothing to export. Create it with 'wrangler d1 create finn-registry', paste the id, and try again."
+            status=1
+          fi
+
+          # The pointer file, checked here as well as by the guard downstream, so
+          # a file that cannot be published costs nothing to find out about: this
+          # step runs before the D1 export.
+          #
+          # Only URL position matters. A placeholder in a comment is fine and the
+          # file has several — it documents this hazard by name. One in URL
+          # position passes every format rule the file states, so a client cannot
+          # tell it from a real answer: it accepts it, caches it for 24 hours, and
+          # reports the registry as *unreachable* when the truth is that it has
+          # never been *deployed*.
+          if [ -f registry/v1/url.txt ]; then
+            if sed -e 's/[[:space:]]*$//' registry/v1/url.txt \
+              | grep -v '^[[:space:]]*#' \
+              | grep -v '^[[:space:]]*$' \
+              | grep -qi 'REPLACE[-_]WITH'; then
+              echo "::error::registry/v1/url.txt names a placeholder in URL position. It satisfies every format rule the file documents, so finn would accept it, cache it for 24 hours and report the registry as unreachable rather than as never deployed. Delete the line — comments only is correct until a real origin exists."
+              status=1
+            fi
+          fi
+
+          if ! command -v sqlite3 >/dev/null 2>&1; then
+            echo "::error::sqlite3 is not on PATH. The runner image normally ships it; if that changed, install it before this step rather than letting the load step fail on a missing binary."
+            status=1
+          fi
+
+          if [ ! -f "$INDEX" ]; then
+            echo "::notice::$INDEX does not exist on this ref, so this run has no committed index to compare against and every entry counts as new."
+          fi
+
+          # The scratch paths every later step uses. Out of the working tree on
+          # purpose — see the generate step.
+          {
+            echo "DUMP=${RUNNER_TEMP}/d1-export.sql"
+            echo "SNAPSHOT=${RUNNER_TEMP}/register.db"
+            echo "CANDIDATE=${RUNNER_TEMP}/packages.json"
+          } >> "$GITHUB_ENV"
+
+          exit "$status"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The register, as it actually is in production. `--remote` is the whole
+      # point: a local D1 or a development seed holds invented packages pointing
+      # at repositories that do not exist, and publishing one of those is the
+      # worst single fact this repository can get wrong.
+      - name: Export production D1
+        run: |
+          set -euo pipefail
+          npx wrangler d1 export finn-registry --remote --output "$DUMP" -y
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # A dump that arrived half-written is the failure mode that matters: it can
+      # load cleanly enough to produce a well-formed index describing a register
+      # smaller than the real one. Three layers catch it, weakest first — an empty
+      # file here, a statement cut in half when sqlite3 refuses to parse it, and a
+      # missing table when the counts below are read. A dump truncated exactly on
+      # a statement boundary survives all three, which is what the comparative
+      # guard downstream is for.
+      - name: Load the dump into a SQLite snapshot
+        run: |
+          set -euo pipefail
+          if [ ! -s "$DUMP" ]; then
+            echo "::error::the D1 export is empty. Refusing to derive an index from it."
+            exit 1
+          fi
+          echo "  dump      $(wc -c < "$DUMP") bytes, $(wc -l < "$DUMP") lines"
+
+          sqlite3 "$SNAPSHOT" < "$DUMP"
+
+          # Read the three tables the generator reads. A dump that loaded nothing
+          # useful dies here rather than becoming an index with no packages in it.
+          packages=$(sqlite3 "$SNAPSHOT" 'select count(*) from packages;')
+          users=$(sqlite3 "$SNAPSHOT" 'select count(*) from users;')
+          versions=$(sqlite3 "$SNAPSHOT" 'select count(*) from versions;')
+          echo "  snapshot  ${packages} packages, ${users} users, ${versions} versions"
+          echo "SNAPSHOT_PACKAGES=${packages}" >> "$GITHUB_ENV"
+
+      # Generated to a scratch path, never over the committed file. The generator
+      # writes its output as its last statement, so a crash cannot truncate the
+      # real index — but a *successful* run that produces a bad index would still
+      # have replaced it before anything looked. Out-of-tree generation means the
+      # working tree is only touched after the guard has passed.
+      - name: Generate a candidate index
+        run: |
+          set -euo pipefail
+          npm run build:fallback-index -- --db "file:$SNAPSHOT" --out "$CANDIDATE"
+
+      # The gate. Refuses an index that is malformed, that carries a third-party
+      # repository, that claims a version with no tag or commit behind it, that
+      # has lost a name, or that has repointed one. Nothing has been written to
+      # the working tree at this point, so a refusal here leaves the committed
+      # index exactly as it was.
+      # Every input named explicitly, including the pointer: the guard checks
+      # that the candidate's `registry_url` and `registry/v1/url.txt` say the same
+      # thing, which is the one pointer rule the generator cannot enforce because
+      # the generator writes both.
+      - name: Guard the candidate
+        id: check
+        run: |
+          set -euo pipefail
+          node scripts/check-fallback-index.mjs \
+            --candidate "$CANDIDATE" \
+            --committed "$INDEX" \
+            --pointer registry/v1/url.txt
+
+      - name: Stage the new index
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          cp "$CANDIDATE" "$INDEX"
+          git --no-pager diff --stat -- "$INDEX"
+
+      - name: Commit and push
+        if: steps.check.outputs.changed == 'true' && env.COMMIT == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$INDEX"
+          if git diff --cached --quiet -- "$INDEX"; then
+            echo "::notice::nothing staged after all; not committing."
+            exit 0
+          fi
+          git commit -m 'chore(registry): regenerate the fallback index' \
+                     -m "Generated from production D1 by .github/workflows/fallback-index.yml. ${{ steps.check.outputs.entries }} entries (was ${{ steps.check.outputs.previous_entries }})."
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      # Always, including on a refusal: the numbers are the thing a reviewer
+      # wants, and on a skipped run this summary is the liveness evidence that
+      # the header's `generated_at` decision leans on.
+      - name: Summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "### Fallback index"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| ref | \`${GITHUB_REF_NAME}\` |"
+            echo "| packages in the register | ${SNAPSHOT_PACKAGES:-not read} |"
+            echo "| entries in the index | ${{ steps.check.outputs.entries || 'not generated' }} |"
+            echo "| entries before | ${{ steps.check.outputs.previous_entries || 'n/a' }} |"
+            echo "| contents changed | ${{ steps.check.outputs.changed || 'unknown' }} |"
+            echo "| added | ${{ steps.check.outputs.added || 'none' }} |"
+            echo "| commit requested | ${COMMIT} |"
+            echo
+            if [ "${{ steps.check.outputs.changed }}" = 'false' ]; then
+              echo "Contents are unchanged, so nothing was committed. Only \`generated_at\` would have moved, and a timestamp-only commit is not worth the noise in the audit history of a trust root — see the header of this workflow."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,78 +1,54 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
-import { SignJWT, jwtVerify } from "jose";
-import { db, getDb } from "./db";
-import { sessions, authCodes } from "./db/schema";
+import { getDb } from "./db";
+import { sessions } from "./db/schema";
 import { eq } from "drizzle-orm";
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "default_secret");
+/**
+ * Session and token handling.
+ *
+ * Everything here runs on the Cloudflare Workers runtime (ADR-0005), which is
+ * `workerd`, not Node. There are no `node:crypto` imports: randomness comes from
+ * WebCrypto's `crypto.getRandomValues`, a global on `workerd` and on Node 18+,
+ * so the same code runs under vitest.
+ *
+ * A session is a row, and that is the only way to authenticate. There was also a
+ * signed-token path here: it verified an HS256 JWT and handed the decoded payload
+ * back as the caller's identity — no database read, no shape check — against a key
+ * that fell back to the literal `"default_secret"` whenever `JWT_SECRET` was
+ * unset. Nothing in this codebase ever issued such a token, so the only way to
+ * present one was to forge it. It is gone. A row can be revoked by deleting it;
+ * a signed token cannot be revoked at all.
+ *
+ * There is no password or API-key hashing left to do. The CLI never
+ * authenticates (contract §2.6), so `api_keys` and `auth_codes` are gone, and
+ * with them the per-request `scryptSync` scan that could not fit in the 10 ms
+ * CPU budget.
+ */
+
+const HEX = "0123456789abcdef";
 
 /**
- * Secure random string
+ * Secure random hex string, `length` bytes of entropy (so `2 * length` chars).
  */
 export function generateRandomString(length: number = 32): string {
-  return randomBytes(length).toString("hex");
-}
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
 
-/**
- * Generate API key
- */
-export function generateApiKey(): string {
-  return "fn_" + randomBytes(24).toString("hex");
-}
-
-/**
- * Hash API key
- */
-export function hashApiKey(key: string): string {
-  const salt = randomBytes(16).toString("hex");
-  const derivedKey = scryptSync(key, salt, 64).toString("hex");
-  return `${salt}:${derivedKey}`;
-}
-
-/**
- * Verify API key
- */
-export function verifyApiKey(key: string, hashedKey: string): boolean {
-  const [salt, storedHash] = hashedKey.split(":");
-  const derivedKey = scryptSync(key, salt, 64);
-  const storedHashBuffer = Buffer.from(storedHash, "hex");
-  return timingSafeEqual(derivedKey, storedHashBuffer);
-}
-
-/**
- * Calculate content checksum
- */
-export function calculateChecksum(content: string | Buffer): string {
-  return createHash("sha256").update(content).digest("hex");
-}
-
-/**
- * Generate JWT
- */
-export async function generateToken(payload: any) {
-  return await new SignJWT(payload)
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("30d")
-    .sign(JWT_SECRET);
-}
-
-/**
- * Verify JWT
- */
-export async function verifyToken(token: string) {
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    return payload;
-  } catch {
-    return null;
+  let out = "";
+  for (const byte of bytes) {
+    out += HEX[byte >> 4] + HEX[byte & 0x0f];
   }
+
+  return out;
 }
 
 /**
  * Session management
  */
-export async function createSession(userId: string, env?: any) {
+export async function createSession(
+  userId: string,
+  env?: unknown,
+  github?: { accessToken?: string | null; scope?: string | null },
+) {
   const currentDb = getDb(env);
   const token = generateRandomString(48);
   const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -82,13 +58,15 @@ export async function createSession(userId: string, env?: any) {
     id,
     userId,
     token,
+    githubAccessToken: github?.accessToken ?? null,
+    githubScope: github?.scope ?? null,
     expiresAt,
   });
 
   return token;
 }
 
-export async function verifySession(token: string, env?: any) {
+export async function verifySession(token: string, env?: unknown) {
   const currentDb = getDb(env);
   const session = await currentDb.select().from(sessions).where(eq(sessions.token, token)).get();
 
@@ -99,40 +77,26 @@ export async function verifySession(token: string, env?: any) {
   return session;
 }
 
-export async function deleteSession(token: string, env?: any) {
+export async function deleteSession(token: string, env?: unknown) {
   const currentDb = getDb(env);
   await currentDb.delete(sessions).where(eq(sessions.token, token));
 }
 
 /**
- * Auth code flow
+ * Does this sign-in carry a grant wide enough to read repository permissions?
+ *
+ * Signing in asks for `user:email`, which cannot see repository permissions
+ * (ADR-0004), so the answer is normally no until the user has been through the
+ * incremental request at registration. GitHub returns the granted scopes as a
+ * comma-separated list.
  */
-export async function createAuthCode(userId: string, env?: any) {
-  const currentDb = getDb(env);
-  const code = generateRandomString(16);
-  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+export function hasRepositoryScope(scope: string | null | undefined): boolean {
+  if (!scope) return false;
 
-  const id = crypto.randomUUID();
-  await currentDb.insert(authCodes).values({
-    id,
-    userId,
-    code,
-    expiresAt,
-  });
+  const granted = scope
+    .split(/[,\s]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 
-  return code;
-}
-
-export async function exchangeAuthCode(code: string, env?: any) {
-  const currentDb = getDb(env);
-  const authCode = await currentDb.select().from(authCodes).where(eq(authCodes.code, code)).get();
-
-  if (!authCode || authCode.expiresAt < Date.now()) {
-    return null;
-  }
-
-  // Single use: delete after exchange
-  await currentDb.delete(authCodes).where(eq(authCodes.id, authCode.id));
-
-  return authCode.userId;
+  return granted.includes("repo") || granted.includes("public_repo");
 }

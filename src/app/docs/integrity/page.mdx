@@ -1,0 +1,64 @@
+export const metadata = {
+  title: "Checksums and integrity",
+  description:
+    "How the register pins a version — the commit behind it — and what a checksum on a record claims.",
+};
+
+# Checksums and integrity
+
+What the register pins is the commit. A commit hash names an exact tree, which is
+a stronger statement than a hash over an archive — and it is git's guarantee,
+checkable by you, not a promise you have to take from us.
+
+<NotThis>
+Packages are not cryptographically signed, and the registry does not recompute
+checksums. A checksum on a version record is the one its publisher attested to.
+</NotThis>
+
+## What the registry actually records
+
+Two things, and it is worth being precise about which is which.
+
+**The commit.** Every version record stores the git tag *and* the commit that tag
+resolved to when the record was written. This is the strong guarantee, and it
+comes from git rather than from us: a commit hash names an exact tree, and a tag
+that gets moved to point somewhere else no longer matches the commit we recorded.
+If you pin a commit, you have pinned the code.
+
+**A publisher-attested checksum.** If a publisher supplies a checksum, the
+registry relays it and labels it `publisher_attested`. That is exactly as strong
+as trusting the publisher — no more, which is why the register shows it as
+"Attested" and never as verified. There is no way to submit one yet
+([Registering a package](/docs/registering-a-package)), so no entry carries a
+checksum today.
+
+## Why the commit is the real protection
+
+`finn.lock` records the resolved commit for every dependency. A fresh install
+against the same lockfile fetches the same commit, and git's own content
+addressing makes any substitution visible. That protects you against a moved tag,
+a force-pushed branch, and a rewritten release — the realistic attacks — without
+anything having to be taken on trust.
+
+What it does not protect against is a repository being deleted, or an outage at
+the moment you install. If a version has to keep resolving through either, vendor
+it or keep your own mirror.
+
+## An open question
+
+A checksum on the register is one its publisher submitted. What is open is
+whether such a checksum is worth the submission step, and that
+turns on whether the hash `finn` computes over an installed package is
+reproducible from a clean clone. It would require agreeing on what exactly is
+hashed: which files, in which order, with which normalisation, and what happens to
+symlinks, line endings and file modes. Two implementations that disagree on any of
+that produce different hashes for identical source, which is worse than having no
+checksum at all.
+
+Until that is settled, treat a registry checksum as the publisher's claim about
+their own release. Treat the commit as the fact.
+
+<Callout>
+  If you need a stronger guarantee today, vendor the dependency or pin the commit
+  yourself. Both give you the same guarantee the lockfile does, held locally.
+</Callout>

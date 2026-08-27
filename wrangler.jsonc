@@ -1,0 +1,69 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "finn-registry",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  // Not secrets, so they live here rather than in `wrangler secret put`.
+  //
+  // APP_URL is the origin this deployment answers on, and it is the only source
+  // of that fact — sign-in refuses and names it rather than deriving an origin
+  // from a request header, and rather than reading any other variable.
+  //
+  // NEXT_PUBLIC_APP_URL carries the same value but is NOT what sign-in uses, and
+  // the difference is load-bearing rather than stylistic. `NEXT_PUBLIC_*` is a
+  // build-time inline: Next freezes the literal into the compiled output, so it
+  // is settable only on the machine that runs the build and a var here can never
+  // reach it. It is kept because `src/app/layout.tsx` needs it for
+  // `metadataBase`, where build-time is the correct time — that metadata is
+  // baked into prerendered HTML anyway. The router deliberately reads only
+  // APP_URL: it once preferred the `NEXT_PUBLIC_` copy, which meant a stray
+  // `.env.local` on a build box froze the callback origin into the artifact and
+  // made this var unreachable. See `configuredOrigin` in the router.
+  //
+  // So: changing APP_URL here changes where OAuth codes are sent, and takes
+  // effect on deploy. Changing NEXT_PUBLIC_APP_URL here affects nothing at
+  // runtime; it has to be right at build time to matter, which for this project
+  // means right in this file before `cf:build` runs.
+  //
+  // Left as the placeholder for the same reason `database_id` is, and refused in
+  // origin position for the reason `registry/v1/url.txt` gives at length: a real
+  // -looking wrong value is worse than an absent one. `http://localhost:3000`
+  // here would satisfy every check, build a redirect_uri pointing at the
+  // deployer's laptop, and surface as GitHub's `redirect_uri_mismatch` — which
+  // reads as "the OAuth app is misconfigured" rather than "nobody set APP_URL".
+  // `configuredOrigin` in the router therefore treats the placeholder as unset,
+  // so the failure names this line.
+  //
+  // Whoever deploys replaces both with the origin wrangler prints, no trailing
+  // slash and no path, and sets the GitHub OAuth app's callback to
+  // <APP_URL>/api/auth/github/callback in the same change.
+  "vars": {
+    "APP_URL": "https://REPLACE_WITH_DEPLOYMENT_ORIGIN",
+    "NEXT_PUBLIC_APP_URL": "https://REPLACE_WITH_DEPLOYMENT_ORIGIN"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "finn-registry",
+      // Create the database with `wrangler d1 create finn-registry` and paste the
+      // id it prints here. Left as a placeholder on purpose: a wrong id fails at
+      // deploy with a clear message, where a silently absent binding fails at
+      // runtime on every request.
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      // drizzle-kit generates into ./drizzle; wrangler defaults to ./migrations.
+      // Pointing it here is what lets `wrangler d1 migrations apply DB --remote`
+      // apply the same SQL that local development uses. `npm run db:migrate`
+      // (drizzle-kit) only ever touches the local file — D1 has no direct
+      // connection for drizzle-kit to open.
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

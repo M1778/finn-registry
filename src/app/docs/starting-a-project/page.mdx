@@ -1,0 +1,121 @@
+export const metadata = {
+  title: "Starting a project",
+  description:
+    "finn init, the finn.toml manifest, and what ends up in your working tree.",
+};
+
+# Starting a project
+
+```bash
+finn init myapp
+```
+
+`finn init` takes a path, defaulting to the current directory, and asks three
+questions: the project name, whether it is a binary or a library, and whether to
+initialise a git repository. Answer them ahead of time with flags:
+
+| Flag                    | Effect                                              |
+| ----------------------- | --------------------------------------------------- |
+| `-y`, `--yes`           | Skip the prompts and take the defaults              |
+| `--name <name>`         | Project name; defaults to the directory name        |
+| `--template <kind>`     | `binary` or `library`                               |
+| `-f`, `--force`         | Overwrite an existing `finn.toml`                   |
+
+`--force`, `--verbose`, `--quiet` are global — they work on every `finn`
+command, not just `init`.
+
+## What you get
+
+A binary project:
+
+```text
+myapp/
+├── finn.toml       # the manifest
+├── .gitignore      # .finn/, out/, *.o, *.exe
+├── .finn/          # local environment; fetched packages land in .finn/packages
+└── src/
+    └── main.fin    # entry point
+```
+
+A library project writes `src/lib.fin` instead, plus an `exports.fin` at the root
+that re-exports it.
+
+## finn.toml
+
+```toml
+[project]
+name = "myapp"
+version = "0.1.0"
+envpath = ".finn"
+entrypoint = "main.fin"
+
+[packages]
+
+[scripts]
+```
+
+`[project]` is the only required table.
+
+`[packages]` is your dependency list. Entries are written by `finn add`, not by
+hand. The key is the package name; the value is the input you handed `finn add`,
+stored verbatim and resolved again on every sync:
+
+```toml
+[packages]
+http = "http"                 # a bare name, resolved through the register
+fin-http = "acme/fin-http"    # a slash, so straight to GitHub
+```
+
+A GitHub repository keeps whatever name it has, hyphens included — the narrowed
+grammar below applies to *registered* names, not to repositories. `finn` warns
+when a dependency's name cannot be written as `import <name>;`, and points at the
+form that works.
+
+<Callout kind="warning">
+  `[packages]`, not `[dependencies]`, and the value is a source rather than a
+  semver range. Older documentation showed `[dependencies]` with ranges like
+  `"^1.0.0"`, names like `"finn/http"`, and pins written as `#1.2.0`. None of
+  those parse — a version is pinned with `@`, exactly as `finn add` takes it.
+</Callout>
+
+`[scripts]` is a map of task name to shell command, run with `finn do`:
+
+```toml
+[scripts]
+fmt = "fin fmt src"
+ship = "finn build --release"
+```
+
+```bash
+finn do fmt
+finn do ship -- --verbose      # everything after -- goes to the script
+```
+
+## The lockfile
+
+`finn.lock` records the exact commit and checksum each dependency resolved to.
+Commit it. It is what makes a build reproducible: `finn sync` re-checks the
+installed tree against the checksum recorded there, and a version that has been
+yanked still installs for a project that already pins it.
+
+## Names
+
+The `name` in `[project]` is yours to choose locally — `finn` takes it verbatim
+from `--name` or the directory name and does not police it. A **registered** name
+is separate and stricter: lowercase letters and digits, starting with a letter,
+2 to 64 characters, and not one of Fin's reserved words. Bare — `http`, never
+`acme/http`.
+
+```text
+myapp      httpclient    a1        ✓
+my-app     my_app        MyApp     ✗   only letters and digits
+type       let           string    ✗   reserved words in Fin
+```
+
+<Callout>
+  The register refuses those rather than rewriting them, so a project called
+  `my-app` has to pick a different name the day it is
+  [registered](/docs/registering-a-package). Every registered name is a name you
+  can write as `import <name>;` in Fin, which is the whole reason the rule is that
+  narrow — and choosing one that fits from the start costs nothing.
+</Callout>
