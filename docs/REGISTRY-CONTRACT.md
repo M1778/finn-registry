@@ -635,12 +635,25 @@ and the publisher force-pushes the tag to `def456`:
   pattern, `is_trusted` withdrawn on the package with a minute recorded against it (§2.8). Neither
   lever edits the record, which is the point.
 
-**Where the guarantee is currently free.** Nothing in this codebase has ever written to `versions`
-(§6, and `REGISTRY-API.md` §10.1). So immutability is trivially true today, and this section is
-here to be written down *before* the write path exists rather than after — because whatever writes
-version records has to be built to honour it, and "insert only, no update, no delete" is a much
-easier constraint to design in than to retrofit. `Sync.md` §3.2 tracks how records come to be
-written at all; this section constrains it.
+**This guarantee used to be free, and is not any more.** Up to rev 8 nothing in this codebase had
+ever written to `versions`, so immutability was trivially true and this section was written down
+*before* the write path existed rather than after. That write path now exists: a `push` delivery
+from the registry's GitHub App, and nothing else (ADR-0007, `REGISTRY-API.md` §13). What was a
+design intention is therefore now an enforced property, and it is worth saying exactly how, because
+"we do not update records" is a claim you are entitled to check:
+
+- **Insert only.** The receiver issues one `INSERT`. There is no `UPDATE` and no `DELETE` against
+  `versions` anywhere in the codebase, on any path.
+- **The unique index on `(package_id, version)` is the enforcement**, not a convention. A second
+  delivery for a version that already exists is refused by the database, and the endpoint reports
+  it as already recorded rather than as an error — which it has to, because GitHub retries
+  deliveries and a hook that keeps failing gets disabled.
+- **A tag force-pushed to a different commit therefore keeps the original commit**, which is the
+  case this section is really about. The record becomes the evidence of the discrepancy described
+  above, and that is the whole reason an update would be the wrong answer.
+- **A tag deletion writes nothing.** Creation writes and deletion does not, deliberately: the only
+  lever over a published version is `yanked`, which is a moderation act with a minute against it
+  (§2.8), and never a consequence of somebody's `git push --delete`.
 
 ---
 
@@ -678,11 +691,17 @@ push access to this repository redirects package resolution for every user. That
 repository being public, which makes `git log registry/v1/url.txt` a complete public record of every
 redirect ever issued — a hostname compiled into a binary could offer nothing comparable.
 
-**Two things about it are not true yet, and you should know both.** The pointer publishes **no URL
+**One thing about it is not true yet, and you should know it.** The pointer publishes **no URL
 at all** — it is comments only — because nothing has been deployed and a `workers.dev` account
-subdomain is not knowable before the first publish; and both files currently live on
-`feat/registry-implementation`, not on the default branch, so **`HEAD` 404s for both until that
-branch merges.**
+subdomain is not knowable before the first publish.
+
+**Corrected 2026-08-27.** This used to name a second thing: that both files lived on
+`feat/registry-implementation` rather than the default branch, so `HEAD` 404d for both. That branch
+has merged (`22da728`), both files are on the default branch, and `HEAD` serves them. The correction
+changes which failure you see rather than whether you see one — tier 2 now gets a `200` carrying a
+pointer with no URL line instead of a `404`, so `parse_pointer` reports *it contains no URL line*
+rather than *not found*. That is the more accurate of the two, and the reason the file is published
+as comments in the first place.
 
 It used to end with a placeholder (`…REPLACE-WITH-ACCOUNT-SUBDOMAIN…`), and that was removed on
 purpose: it satisfies every rule the format states — https, a non-empty host, no trailing slash, no
@@ -1199,7 +1218,7 @@ of the browser-session surface. What is and is not covered is spelled out under 
 | `GET /api/packages/:name` (§3.2)                       | Live                               |
 | Read-endpoint rate limit raised (§3.7)                 | Live                               |
 | Registration with the push-access gate (§2.2)          | Live                               |
-| Version records, so `latest_version` resolves          | **Not built — see below**          |
+| Version records, so `latest_version` resolves          | **Built, covered — see below**     |
 | `GET /api/packages/:name/versions` (§3.3) and §3.4     | Live                               |
 | Verification requests (§3.10) plus the reviewers’ bench (§2.7) | Live, covered            |
 | `trust` on every response (§2.4)                       | Live — §2.5 is yours              |
@@ -1208,26 +1227,46 @@ of the browser-session surface. What is and is not covered is spelled out under 
 | Fallback index `registry/v1/packages.json` (§3)        | Generated — empty, `registry_url: null`, on a feature branch |
 | Name rule narrowed to `^[a-z][a-z0-9]*$` + reserved words (§2.10) | Live, both enforcement sites |
 
-**Correction to an earlier revision of this table.** Up to rev 5 the registration row also claimed
-version records. It was wrong, and `REGISTRY-API.md` §10.1 was right: **nothing in this codebase
-has ever written to the `versions` table** — not a route, not a server action, not a script. So
-`latest_version` is `null` on every package, §3.3 returns an empty array, and §3.4 404s for every
-version of every package. Treat all three as the normal case. Your reply's ask 5 (a
-version-existence answer) is blocked on this, not on the route, which exists and 404s distinctly
-already. How version records come to be written is now the largest open question between the two
-projects; it is stated as such in `Sync.md` §3.2, because your `LockedPackage` already holds
-exactly the four fields a version record needs and you will never hold a credential to submit
-them with.
+**Version records, corrected again — this row has now been wrong in both directions.** Up to rev 5
+this table claimed version records under the registration row and did not have them. Rev 6 to rev 8
+corrected that to "not built", which was right at the time. **They are now built**: the writer is a
+`push` delivery from the registry's GitHub App, verified by HMAC and inserted once per registered
+name pointing at that repository (ADR-0007, `REGISTRY-API.md` §13). That answers the question this
+paragraph called "the largest open question between the two projects", and it answers it *without*
+`finn` submitting anything — which is the point, since your `LockedPackage` holds exactly the four
+fields a version record needs and was never going to hold a credential to submit them with.
 
-**What the test suite covers** (`tests/`), re-measured 2026-08-25 at **374 tests across 19 files**:
+**What that does and does not change for you.** Nothing in §3 changes shape, and no `finn` change
+is required: the endpoints, the payloads and the field names are the ones already documented.
+`latest_version` simply stops being `null` for a package once its publisher has installed the App
+and pushed a version tag. Until that happens for a given package — and it has happened for none,
+because nothing is deployed and no App is provisioned (§6, below) — `latest_version` is still
+`null`, §3.3 still returns an empty array and §3.4 still 404s. **Treat all three as the normal
+case, exactly as before.** The difference is that they are now facts about a package rather than
+facts about the registry.
+
+One consequence is worth your attention rather than ours. A version record stores the tag as
+`git_ref` and the version as `version`, and they are not the same string: a repository tagged
+`v1.2.0` yields `version: "1.2.0"` and `git_ref: "v1.2.0"`, because a leading `v` is punctuation on
+a tag and not part of a semantic version. §3.2's package record carries `latest_version` and does
+**not** carry `git_ref`, so a client that derives a tag from a version string will look for a tag
+that does not exist on the majority of repositories. §3.3 and §3.4 both publish `git_ref` on every
+record. This is a resolution question for `finn`, not a registry one, and it is flagged here rather
+than decided here.
+
+**What the test suite covers** (`tests/`), re-measured 2026-08-27 at **401 tests across 20 files**:
 dedicated suites for `trust.level` derivation (§2.4), §3.6 health, §3.2 resolve, §3.3 and §3.4
 version records, §3.5 search and browse, §3.9 publisher profiles, and both registration endpoints of
 §3.10 including their `401`s. Plus, on the browser-only side you do not call but which shares this
 code: verification requests, the reviewers' bench, `GET /api/stats`, `GET /api/dashboard/data`, the
-proof-of-work gate, and the fallback-index generator. Plus five permanent regression suites, each
-pinning a bug that actually happened: no endpoint invents a `1.0.0` version; no forged session token
-is accepted; the OAuth state never reaches a parent frame; a request origin is never taken from
-headers; and neither discovery file may carry a guessed registry URL.
+proof-of-work gate, and the fallback-index generator. Plus the GitHub App delivery endpoint that
+writes version records — the only writer of `versions` anywhere (ADR-0007) — covering signature
+verification over the delivered bytes, authorisation against the registered repository rather than
+any name in the payload, every kind of delivery that records nothing, and the immutability of §2.11.
+Plus six permanent regression suites, each pinning a bug that actually happened: no endpoint invents
+a `1.0.0` version; no forged session token is accepted; the OAuth state never reaches a parent
+frame; a request origin is never taken from headers; neither discovery file may carry a guessed
+registry URL; and no package row exists without proven push access.
 
 **What it does not**, corrected 2026-08-25 — **an earlier revision of this paragraph named five
 untested surfaces and three of them had tests, which is how finished work gets billed as open.**
@@ -1252,9 +1291,11 @@ deliberately, because a syntactically valid guess passes every format rule the f
 `finn` would cache it for 24 hours — turning *not deployed yet* into *unreachable*, which is the
 failure your own tier-3 decision exists to prevent. `url.txt` is comments only (0 non-comment
 non-blank lines) and `packages.json` carries `"registry_url": null`, so `parse_pointer` reports that
-no registry deployment is known, which is the honest answer. Both files are still on
-`feat/registry-implementation` rather than on the default branch, so `HEAD` 404s for both until that
-merges. Discovery is built and
+no registry deployment is known, which is the honest answer. **Also corrected, 2026-08-27: both
+files are on the default branch now.** This paragraph used to end by saying they were still on
+`feat/registry-implementation` so `HEAD` 404d for both; that branch merged at `22da728` and `HEAD`
+serves both files. Again the outcome does not move, only the failure does: tier 2 answers `200` with
+a pointer that names no URL, where it used to answer `404`. Discovery is built and
 not yet serving; ask us when you are ready to integrate and we will tell you whether it is.
 
 What is waiting on you: §2.5, the `recognized` prompt, which is the only thing that blocks the trust

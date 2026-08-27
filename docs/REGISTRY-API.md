@@ -31,6 +31,7 @@ in one of them worth reporting.
 10. [What does not exist yet](#10-what-does-not-exist-yet)
 11. [Verifying against a running instance](#11-verifying-against-a-running-instance)
 12. [Registry discovery and the offline fallback index](#12-registry-discovery-and-the-offline-fallback-index)
+13. [Where version records come from](#13-where-version-records-come-from)
 
 ---
 
@@ -137,8 +138,10 @@ The full record, returned by `GET /api/packages/:name`.
 | `updated_at` | `string` | Falls back to `created_at`. |
 
 **`latest_version` is the field most likely to break a client.** It is `null`
-for every package that has claimed a name but recorded no version — which today
-is *all of them*, because no write path for version records exists ([§10](#10-what-does-not-exist-yet)).
+for every package that has claimed a name but recorded no version, which is every
+package until its publisher installs the registry's GitHub App and pushes a tag
+([§13](#13-where-version-records-come-from)). Claiming a name is not releasing
+anything, so `null` stays the ordinary answer rather than an edge case.
 Do not default it to `"1.0.0"`, `"0.0.0"`, or `"latest"`. If your resolver needs
 a version and the field is `null`, that package cannot be resolved by version and
 the honest report is "no released version recorded", not a guess.
@@ -1037,26 +1040,37 @@ Read this section before planning client work. Several things a package manager
 would reasonably expect are **absent**, not merely undocumented, and building
 against the assumption that they exist is the most likely way to waste a day.
 
-### 10.1 There is no write path for version records — anywhere
+### 10.1 There is one write path for version records, and no publisher has used it
 
-**Nothing in this codebase ever inserts, updates, or deletes a row in the
-`versions` table.** Not an API route, not a server action, not a script. The
-table is read by four endpoints and written by nothing.
+A version record is written by exactly one thing: a `push` delivery from the
+registry's GitHub App, arriving at `POST /api/webhooks/github`
+([§13](#13-where-version-records-come-from), ADR-0007). There is no other route, no
+server action and no script that inserts, updates or deletes a row in `versions`,
+and nothing anywhere updates or deletes one — §2.11 of the contract makes a record
+immutable and `yanked` the only lever over it.
 
-Everything downstream follows from that:
+What that means for a client has not changed as much as it sounds. The write path
+needs three things that do not exist yet on any deployment: a provisioned GitHub
+App, a `GITHUB_WEBHOOK_SECRET` set on the instance, and a publisher who has
+installed the App and pushed a tag. Until all three hold for a given package:
 
 | Consequence | What you actually get |
 |---|---|
-| `latest_version` on every package | `null` |
+| `latest_version` on that package | `null` |
 | `GET /api/packages/:name/versions` | `{ "name": "…", "versions": [] }` |
-| `GET /api/packages/:name/versions/:version` | `404` for every version of every package |
-| `checksum`, `checksum_origin`, `git_ref`, `commit` | Never populated |
+| `GET /api/packages/:name/versions/:version` | `404` for every version of it |
+| `checksum`, `checksum_origin` | Never populated, on any path — see [§10.4](#104-no-checksum-can-be-verified-only-reported) |
 
-So today the registry can answer **"what repository is this name?"** and cannot
-answer **"what versions does it have?"**. A resolver must handle `latest_version:
-null` and an empty `versions` array as the *normal* case, and fall back to reading
-tags from `repo_url` on GitHub if it needs a version. Registering a name is
-explicitly not releasing anything ([§7.2](#72-post-apipackages--claim-a-name)).
+So a resolver must still handle `latest_version: null` and an empty `versions`
+array as the *normal* case, and fall back to reading tags from `repo_url` on GitHub
+if it needs a version. Registering a name is explicitly not releasing anything
+([§7.2](#72-post-apipackages--claim-a-name)), and installing the App does not
+register a name.
+
+What *has* changed: `latest_version: null` is no longer a statement about the
+registry's capabilities. It says this package has no recorded release, which is a
+fact about that package, and it can become a version without anything being
+deployed or migrated.
 
 ### 10.2 No endpoint publishes, yanks, or withdraws
 
@@ -1210,16 +1224,16 @@ an already-installed binary. The repository is public, so no token, no
 `Authorization` header and no authenticated transport is involved; a plain
 unauthenticated `GET` is the whole protocol.
 
-> **Both URLs 404 right now, and merging is the fix.** `HEAD` resolves to the
-> default branch, and every file described in this section lives on
-> `feat/registry-implementation`. The default branch does not have them. Until that
-> branch merges, discovery gets a 404 at tier 2 and there is nothing behind it: the
-> client's compiled-in default is `None`, deliberately, because a URL baked into a
-> binary that 404s turns "not deployed" into "your package does not exist".
-> Nothing about the files themselves is wrong; they are simply not on the branch
-> that is served. Merging them is worth doing **before** a deployment exists — see
-> [§12.2](#122-registryv1urltxt--the-pointer), which is published as comments only
-> for exactly that reason.
+> **Corrected 2026-08-27: both URLs resolve now.** This note used to say they
+> 404d, because every file described in this section lived on
+> `feat/registry-implementation` and the default branch did not have them. That
+> branch has merged (`22da728`), and `HEAD` — which resolves to the default branch
+> — serves both files. What tier 2 gets from the pointer is a `200` whose body is
+> comments with no URL line, which is a different answer from a `404` and
+> deliberately so: see [§12.2](#122-registryv1urltxt--the-pointer), published as
+> comments only until a deployment exists. The client's compiled-in default is
+> still `None`, also deliberately, because a URL baked into a binary that 404s
+> turns "not deployed" into "your package does not exist".
 
 ### 12.1 Both paths are permanent API
 
@@ -1379,9 +1393,10 @@ Two rules about the values, both of which a client may rely on:
   This is the same discipline `tests/regressions/no-fabricated-version.test.ts`
   enforces on the API, for the same reason: a fabricated `"1.0.0"` is a false claim
   about somebody else's code, and a client that trusts it checks out a tag that
-  does not exist. Since nothing writes to `versions` yet
-  ([§10.1](#101-there-is-no-write-path-for-version-records--anywhere)), **`null`
-  is the ordinary case today, not an edge case** — handle it first.
+  does not exist. Since a version record only exists once a publisher has installed
+  the GitHub App and pushed a tag
+  ([§13](#13-where-version-records-come-from)), **`null` is the ordinary case
+  today, not an edge case** — handle it first.
 
 `"packages": {}` — an empty map — is a valid index and is what is published today.
 It means *the register holds no first-party package with a recorded version*, which
@@ -1555,6 +1570,120 @@ on every run, including refusals.
 
 ---
 
+---
+
+## 13. Where version records come from
+
+Nothing in this section is for a package manager. `finn` never calls the endpoint
+below, and no client should. It is documented here because it is the only thing
+that turns `latest_version: null` into a version, and a client author reading §2.1
+or §10.1 is entitled to know what has to happen for that field to be populated.
+
+The decision and its trade-offs are ADR-0007. This is the behaviour.
+
+### 13.1 `POST /api/webhooks/github` — a GitHub App delivery
+
+**Audience: the registry's own GitHub App, and nothing else.**
+
+A publisher installs the App on a repository they administer. GitHub then delivers
+that repository's `push` events here, and a push that creates a tag naming an exact
+version becomes one row in `versions` for every registered name pointing at that
+repository. The registry never calls GitHub back on this path: every field of the
+record is read out of the delivery, which is why the App holds no private key, no
+installation token and no outbound credential of any kind.
+
+Installing the App does not claim a name, and claiming a name does not install the
+App. They are separate acts with separate proofs — push access at registration
+(ADR-0004), an installation afterwards — and a delivery from a repository no
+registered name points at writes nothing.
+
+**Authentication.** `X-Hub-Signature-256`, HMAC-SHA256 over the raw request body,
+keyed on `GITHUB_WEBHOOK_SECRET`, compared in constant time. The body is verified as
+bytes and parsed only after it verifies. GitHub's older `X-Hub-Signature` (SHA-1) is
+sent and is **not** accepted: honouring it would offer a downgrade. There is no
+session, no bearer token and no proof of work on this endpoint.
+
+**Status codes, and why so many of them are 200.** A GitHub App has *one* delivery
+URL shared by every installation, and GitHub disables a hook that keeps failing. A
+4xx here is therefore not a message to one publisher; it is a step towards
+switching the write path off for all of them. So defects in the *request* get a
+4xx, and decisions about a *valid* delivery get a 200 saying what was decided.
+
+| Status | Body | When |
+|---|---|---|
+| `201` | `{"status":"recorded","version","git_ref","commit","recorded":[…],"already_recorded":[…]}` | At least one record was written |
+| `200` | `{"status":"already_recorded", …}` | Every name already had that version |
+| `200` | `{"status":"ignored","reason":"…"}` | A valid delivery that names no new version |
+| `200` | `{"status":"ok","event":"ping"}` | The `ping` GitHub sends when the App is installed |
+| `400` | `{"error":"invalid_request", …}` | Signed, and still not JSON |
+| `401` | `{"error":"invalid_signature", …}` | No valid `X-Hub-Signature-256`. The body was not read |
+| `429` | `{"error":"rate_limited", …}` | The registry-wide read limit (§3.7) — 1000 requests per 15 minutes per source address — applies here too |
+| `503` | `{"error":"webhook_unconfigured", …}` | `GITHUB_WEBHOOK_SECRET` is unset. Named in the message |
+
+The `429` is the one status in that table the endpoint does not choose for itself:
+the registry-wide read limiter runs in front of every route. It keys on the source
+address, so a flood from somewhere else cannot spend GitHub's allowance, and 1000
+deliveries per quarter hour from one address is far above any real release rate —
+but it is reachable, and a client author reading this table should not have to
+discover it from a log.
+
+`recorded` and `already_recorded` are arrays of package **names**. No version
+record is echoed back: the endpoint's caller is not a client, and §5.3 is where a
+record is read.
+
+### 13.2 What is ignored, and why that is a 200
+
+- **A branch push.** Only a tag names a version.
+- **A tag that is not an exact version.** `nightly`, `latest`, `v1`, `2026-08-27`
+  and `release-1.0.0` are all tags that are not versions. A single leading `v` is
+  punctuation and is stripped — `v1.2.0` records version `1.2.0` with `git_ref:
+  "v1.2.0"` — and nothing else is guessed at.
+- **A tag deletion.** A version record is never deleted (contract §2.11). The only
+  lever over a published version is `yanked`, which is a moderation act with a
+  minute against it (ADR-0006), not a consequence of `git push --delete`.
+- **A re-delivery, or a tag force-pushed to a new commit.** The unique index on
+  `(package_id, version)` refuses the second insert and the endpoint reports
+  `already_recorded`. The **original commit stands**: the record becomes evidence of
+  the discrepancy, which is what §2.11 asks a client to detect, and an update would
+  destroy the only copy of that evidence.
+- **A repository no registered name points at**, or one whose numeric GitHub id
+  disagrees with the id recorded at registration. The second case is a rename or a
+  transfer whose old `owner/repo` somebody else now holds, and following the URL
+  match there would let a stranger's tag pushes land on the original publisher's
+  name.
+- **Any event that is not `push` or `ping`.**
+
+### 13.3 `commit` is the tag's commit, never the tag object
+
+For an annotated tag the pushed ref points at a tag *object*, so the delivery's
+`after` field is that object's sha and not a commit's. The record's `commit` is
+read from `head_commit` instead. This matters to a client: §2.11 tells you to
+prefer `commit` over `git_ref` and to treat a mismatch between them as rewritten
+history, and a tag object's sha would make that signal fire on every annotated
+release.
+
+### 13.4 What this path can never fill in
+
+`checksum` and `checksum_origin` stay `null` on every record written this way. The
+App does not see the repository's bytes — the registry indexes and GitHub serves
+(ADR-0001) — and a Worker cannot clone a repository, so there is nobody present to
+attest a checksum. See [§10.4](#104-no-checksum-can-be-verified-only-reported):
+absent beats invented.
+
+Dependencies are the same story. A `push` payload carries no dependency
+information, so the `dependencies` table still has no writer.
+
+### 13.5 Nothing is provisioned
+
+No App exists, `GITHUB_WEBHOOK_SECRET` is unset everywhere, and nothing is deployed
+([§10.6](#106-nothing-is-deployed)). On an unconfigured instance the only reachable
+behaviour of this endpoint is the `503` that names the missing variable. That is
+deliberate: there is no fallback key and no degraded mode, because the other end of
+this secret lives on GitHub and cannot be re-derived, and a literal default would be
+a published forgery key.
+
+---
+
 ## Appendix: endpoint index
 
 | Method | Path | § | Audience |
@@ -1576,3 +1705,4 @@ on every run, including refusals.
 | `POST` | `/api/auth/logout` | [7](#7-endpoints-that-require-a-browser-session) | session |
 | `GET` | `/api/dashboard/data` | [7](#7-endpoints-that-require-a-browser-session) | session |
 | `PATCH` | `/api/me/settings` | [7](#7-endpoints-that-require-a-browser-session) | session |
+| `POST` | `/api/webhooks/github` | [13](#13-where-version-records-come-from) | GitHub App only |
