@@ -111,17 +111,18 @@ function Readme({
        box here; without it the widest line in someone else's README decides how
        wide this page is, and the whole document scrolls sideways. The `_`
        descendant variants are deliberate: the elements come from ReactMarkdown,
-       so there is no call site to put a class on. */
+       so there is no call site to put a class on.
+
+       `readme` carries the element styles (globals.css). This used to be a row
+       of `prose-*` classes for `@tailwindcss/typography`, which was never
+       registered as a Tailwind v4 `@plugin` — so every one of them compiled to
+       nothing and a rendered README came out unstyled. Registering it was tried
+       and rejected: `prose-invert` has no theme in it and put body text at
+       1.25:1 on the paper theme. */
     <article
-      className="prose prose-invert prose-zinc reading max-w-none
+      className="readme reading max-w-none
         [&_pre]:overflow-x-auto [&_table]:block [&_table]:w-fit [&_table]:max-w-full
-        [&_table]:overflow-x-auto [&_code]:break-words [&_a]:break-words
-        prose-headings:font-[family-name:var(--font-archivo)] prose-headings:tracking-tight
-        prose-a:text-ink prose-a:underline prose-a:underline-offset-4
-        prose-code:identifier prose-code:before:content-none prose-code:after:content-none
-        prose-pre:bg-recessed prose-pre:border prose-pre:border-[color:var(--rule)] prose-pre:rounded-xs
-        prose-img:rounded-xs prose-img:border prose-img:border-[color:var(--rule)]
-        prose-table:border prose-table:border-[color:var(--rule)] prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5"
+        [&_table]:overflow-x-auto [&_code]:break-words [&_a]:break-words"
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}

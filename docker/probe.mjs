@@ -42,7 +42,7 @@ const PROBES = [
     },
   },
   {
-    path: "/api/packages/a-name-nobody-has-registered",
+    path: "/api/packages/nosuchpackage",
     want: 404,
     // A 404 has to come from a query that found nothing, not from a route that
     // failed to match. The error envelope is how the two are told apart.

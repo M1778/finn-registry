@@ -23,9 +23,29 @@ GITHUB_CLIENT_SECRET=
 # occasional second wait rather than a failure. Set it in production.
 CAPTCHA_SECRET=
 
-# Where this instance is reachable. Used to build the OAuth callback, so it has
-# to match the GitHub app exactly, port included.
+# Where this instance is reachable. Required: it is the only source of the
+# origin, and sign-in refuses and names it rather than falling back. It used to
+# be optional, with the origin guessed from the `Host`/`X-Forwarded-Host` header
+# when it was unset — a header a client controls does not get to help decide
+# where an OAuth code is sent. It has to match the GitHub app's registered
+# callback exactly, port included; a mismatch is GitHub's `redirect_uri_mismatch`
+# and reads as the OAuth app being misconfigured, which is a different problem.
+#
+# Not a secret, so production sets it in wrangler.jsonc's `vars` rather than
+# with `wrangler secret put`. Deploying to a different host means changing it
+# in both places.
 APP_URL=http://localhost:3000
+
+# The same value, but NOT what sign-in reads, and the distinction matters.
+# `NEXT_PUBLIC_*` is inlined by Next at build time, so it is fixed when the
+# artifact is built and no runtime var can change it. It exists for
+# `metadataBase` in src/app/layout.tsx, where baking it in is correct because the
+# metadata ends up in prerendered HTML regardless.
+#
+# The router reads only APP_URL. It used to prefer this variable, which meant a
+# stray `.env.local` on a build machine froze that machine's origin into the
+# deployed callback URL and left APP_URL unreachable. If you only set this one,
+# sign-in will refuse and name APP_URL — that refusal is correct, not a bug.
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 # Local development only. The Worker uses the `DB` D1 binding from

@@ -181,6 +181,44 @@ describe("GET /api/publishers/:login", () => {
   });
 
   /**
+   * The order, asked as its own question.
+   *
+   * The membership assertion above normalises with `.sort()` on purpose, and it
+   * stays that way: "these two names and no others" and "in this order" are
+   * different claims, and converting the first into the second would leave the
+   * first unasked.
+   *
+   * Newest registration first, ties broken by `name` ascending — the same total
+   * order as §5.4 under `sort=recent`, and a documented guarantee (REGISTRY-API
+   * §6.3) rather than an implementation detail, because this endpoint pages.
+   * `offset` over an order that leaves ties unresolved repeats a row on one page
+   * and drops it from another.
+   *
+   * `alpha` and `omega` share a `created_at` so the tie-break is what separates
+   * them, and the three are registered in neither the asserted order nor its
+   * reverse — measured, not assumed. Removing the `orderBy` outright returns
+   * *reversed* registration order rather than registration order, because
+   * `desc(created_at)` is sorted by scanning ascending and reversing, so a fixture
+   * registered in the reverse of the asserted order would come back in exactly the
+   * asserted order and detect nothing.
+   */
+  it("lists newest registration first, ties broken by name", async () => {
+    const acme = await seedPublisher({ login: "acme" });
+    const sameInstant = "2026-03-01T00:00:00Z";
+    await seedPackage({ name: "alpha", publisher: acme, created_at: sameInstant });
+    await seedPackage({ name: "newest", publisher: acme, created_at: "2026-08-01T00:00:00Z" });
+    await seedPackage({ name: "omega", publisher: acme, created_at: sameInstant });
+
+    const { body } = await apiGet("/api/publishers/acme");
+
+    expect(body.items.map((item: { name: string }) => item.name)).toEqual([
+      "newest",
+      "alpha",
+      "omega",
+    ]);
+  });
+
+  /**
    * Per the glossary a publisher *is* an account that registered a package, so
    * an account that has claimed no names is not a publisher and 404s — the same
    * answer as a login that was never seen at all. Anything else would turn this

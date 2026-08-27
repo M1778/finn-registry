@@ -12,6 +12,17 @@ export default defineConfig({
     // the temp-file bookkeeping in one place.
     pool: "threads",
     poolOptions: { threads: { singleThread: true } },
+    // The auth and verification suites solve real proof-of-work: `verify-request`
+    // and `register` are 15 bits, so a single test that signs in and then posts
+    // twice does ~100k hashes before it asserts anything. Vitest's 5s default is
+    // enough on an idle machine and not enough on a shared CI runner, which makes
+    // the suite go red for reasons that have nothing to do with the code — the
+    // worst failure mode a gate can have, because it teaches everyone to re-run
+    // until green. The difficulty is deliberately NOT lowered for tests: it is a
+    // production security parameter, and an env knob that weakens it is a worse
+    // thing to own than a slow suite. So the budget moves instead. A genuine hang
+    // still fails, just later.
+    testTimeout: 30_000,
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },

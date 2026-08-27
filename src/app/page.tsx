@@ -10,6 +10,13 @@ import type { PackageRecord, VersionRecord } from "@/types/registry";
  * The hero closes on a real register entry rather than a claim about one.
  * Marked as a specimen because it is a form sample: `http` is not a name anyone
  * has claimed, so nothing here should be mistaken for a record.
+ *
+ * Every field below is invented, `trust` included. The level is written out, not
+ * put through `deriveTrustLevel`, precisely because there is no row here to
+ * derive it from — a specimen that called the real ladder would look like a
+ * measurement of something. Nothing in this object may be read as a claim about
+ * a package, which is why it is rendered under `label="Specimen entry"` and
+ * named `SPECIMEN` rather than something a reader could mistake for live data.
  */
 const SPECIMEN: PackageRecord = {
   name: "http",

@@ -18,12 +18,26 @@ and the API surface `finn` talks to is read-only.
 
 ## Base URL
 
-```text
-https://finn-registry.pages.dev/api
-```
+There is no fixed one, and `finn` has none compiled in. Every path below is
+relative to whatever base it resolved, and it appends `/api/...` itself.
 
-`finn` uses that unless a project overrides it with a `[registry]` table in
-`finn.toml`. Responses are JSON, and every field name is `snake_case`.
+`finn` looks in two places, in this order:
+
+| | Where | Wins when |
+| --- | --- | --- |
+| 1 | `[registry].url` in `finn.toml`, or `$FINN_REGISTRY_URL` | always — an address you gave ends discovery |
+| 2 | the pointer file `registry/v1/url.txt`, read over HTTPS from this repository's default branch and cached for 24 hours | you gave none |
+
+<Callout>
+  Tier 2 has no address to give today: nothing has been deployed, the pointer
+  publishes no URL, and it is not on the default branch yet either. So `finn`
+  reports that it knows of no registry — not that your package does not exist.
+  Set `$FINN_REGISTRY_URL` to talk to your own in the meantime. Once a deployment
+  exists, one line in the pointer file reaches every installed `finn` without a
+  release.
+</Callout>
+
+Responses are JSON, and every field name is `snake_case`.
 
 ## Resolve one package
 
@@ -112,10 +126,10 @@ Returns `{ "total": 42, "items": [...] }`.
 GET /api/health
 ```
 
-`{"status": "ok", "time": "..."}`. Nothing calls it yet — despite the name,
-`finn healthcheck` reads `finn.toml` and never contacts the registry. It is here so
-that a client *can* tell "the registry is down" apart from "your package does not
-exist", which are the same 404-shaped disappointment without it.
+`{"status": "ok", "time": "..."}`. Nothing calls it yet — no `finn` command
+contacts the registry to ask whether it is up. It is here so that a client *can*
+tell "the registry is down" apart from "your package does not exist", which are
+the same 404-shaped disappointment without it.
 
 ## Error envelope
 

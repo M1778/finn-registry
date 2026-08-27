@@ -1,7 +1,12 @@
 {
-    "name": "app",
+    "name": "finn-registry",
     "version": "0.1.0",
     "private": true,
+    "license": "AGPL-3.0-only",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/M1778/finn-registry.git"
+    },
     "scripts": {
         "dev": "next dev",
         "build": "next build",
@@ -10,6 +15,7 @@
         "typecheck": "tsc --noEmit",
         "test": "vitest run",
         "test:watch": "vitest",
+        "build:fallback-index": "node scripts/build-fallback-index.mjs",
         "db:generate": "drizzle-kit generate",
         "db:migrate": "drizzle-kit migrate",
         "db:apply:local": "wrangler d1 migrations apply finn-registry --local",

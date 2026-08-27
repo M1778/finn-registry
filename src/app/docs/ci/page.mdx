@@ -29,7 +29,7 @@ jobs:
 
       - name: Install finn
         run: |
-          curl -fsSL https://raw.githubusercontent.com/M1778M/finn/master/install.sh | sh
+          curl -fsSL https://raw.githubusercontent.com/M1778/finn/master/install.sh | sh
           echo "$HOME/.finn/bin" >> "$GITHUB_PATH"
 
       - name: Cache downloaded packages

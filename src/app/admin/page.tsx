@@ -5,7 +5,7 @@ import { ExternalLink } from "lucide-react";
 import Seal from "@/components/registry/Seal";
 import { getDb } from "@/lib/db";
 import { packages, reviewMinutes, users, verificationRequests } from "@/lib/db/schema";
-import { deriveTrustLevel } from "@/lib/trust";
+import { deriveTrustLevel, REPO_OWNERSHIP_CONFIRMED } from "@/lib/trust";
 import { getViewer, isAdmin, isModerator } from "@/lib/viewer";
 import {
   approveVerification,
@@ -427,10 +427,13 @@ export default async function AdminPage({
           ) : (
             <ul>
               {bench.map((pkg) => {
+                // A real row's real level, stamped as a seal a moderator rules
+                // on, so the signal comes from the one definition rather than a
+                // literal that could drift from the API's.
                 const level = deriveTrustLevel({
                   publisherVerified: pkg.publisherVerified,
                   packageTrusted: pkg.isTrusted,
-                  repoOwnershipConfirmed: true,
+                  repoOwnershipConfirmed: REPO_OWNERSHIP_CONFIRMED,
                 });
                 // Every vouch that predates the minutes has no author on record,
                 // which is the honest thing to say rather than leaving the line

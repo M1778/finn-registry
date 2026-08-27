@@ -14,17 +14,25 @@ const names = (body: { items: Array<{ name: string }> }): string[] =>
 
 /**
  * One package at each trust level (§2.4):
- *   - `by-verified`   — verified publisher            → level `verified`
- *   - `moderated`     — moderator's vouch, no verified publisher → `trusted`
- *   - `plain`         — registered and nothing more   → `recognized`
+ *   - `attested`   — verified publisher                       → level `verified`
+ *   - `moderated`  — moderator's vouch, no verified publisher → `trusted`
+ *   - `plain`      — registered and nothing more              → `recognized`
+ *
+ * The names sort `attested` < `moderated` < `plain`, and they are **registered in
+ * a different order than that on purpose**: every row here shares one
+ * `created_at`, so a `sort=name` that had quietly stopped ordering by name would
+ * come back in insertion order, and a fixture registered alphabetically cannot
+ * tell that apart from a working sort. None of them contains a hyphen: as of
+ * 2026-08-24 a name is `^[a-z][a-z0-9]*$`, so the `attested` this fixture used to
+ * use is no longer a name the register would accept.
  */
 async function seedTrustLadder(): Promise<void> {
   const verified = await seedPublisher({ login: "acme", is_verified: true });
   const unverified = await seedPublisher({ login: "hobbyist", is_verified: false });
 
-  await seedPackage({ name: "by-verified", publisher: verified });
-  await seedPackage({ name: "moderated", publisher: unverified, package_trusted: true });
   await seedPackage({ name: "plain", publisher: unverified });
+  await seedPackage({ name: "moderated", publisher: unverified, package_trusted: true });
+  await seedPackage({ name: "attested", publisher: verified });
 }
 
 describe("GET /api/packages", () => {
@@ -163,16 +171,26 @@ describe("GET /api/packages", () => {
     expect(body.items).toHaveLength(100);
   });
 
+  /**
+   * Registration order is deliberately not alphabetical, and the window is two
+   * wide rather than one.
+   *
+   * With three names seeded alphabetically and `limit=1`, `offset=1` returns the
+   * middle name under *every* ordering — ascending, descending, or none at all,
+   * since `seedPackage` gives every row the same `created_at` and an unordered
+   * query then comes back in insertion order. The assertion could not see a
+   * broken `sort=name`. A two-wide window taken off the end moves under all
+   * three.
+   */
   it("pages with offset", async () => {
+    await seedPackage({ name: "charlie" });
     await seedPackage({ name: "alpha" });
     await seedPackage({ name: "bravo" });
-    await seedPackage({ name: "charlie" });
 
-    const { body } = await apiGet("/api/packages?sort=name&limit=1&offset=1");
+    const { body } = await apiGet("/api/packages?sort=name&limit=2&offset=1");
 
     expect(body.total).toBe(3);
-    expect(body.items).toHaveLength(1);
-    expect(body.items[0].name).toBe("bravo");
+    expect(names(body)).toEqual(["bravo", "charlie"]);
   });
 
   it("filters by q against the name", async () => {
@@ -226,6 +244,38 @@ describe("GET /api/packages", () => {
     expect(names(body)).toEqual(["newest", "middle", "oldest"]);
   });
 
+  /**
+   * The tie-break, and the reason `sort=recent` is a *total* order rather than a
+   * mostly-right one.
+   *
+   * `limit`/`offset` paging over an order that leaves ties unresolved is a
+   * correctness bug, not an unspecified nicety: when two rows sharing one
+   * `created_at` come back in a different order on two requests, a row repeats on
+   * one page and vanishes from another. Two registrations in the same second is
+   * not contrived — `seedPackage` defaults every `created_at` to one constant, and
+   * a bulk import does the same in production.
+   *
+   * **Registration order here is neither the asserted order nor its reverse, and
+   * that is measured rather than assumed.** With the tie-break removed, this
+   * query returns *reversed* registration order, not registration order: the
+   * primary sort is still `desc(created_at)`, and SQLite sorts a DESC key by
+   * scanning ascending and reversing, which reverses tied rows with it. So a
+   * fixture registered in the reverse of the asserted order — the shape that
+   * catches a broken `asc` sort — would come back in exactly the asserted order
+   * here and detect nothing. Three names shuffled is the only arrangement that is
+   * neither, which is why there are three and not two.
+   */
+  it("breaks a created_at tie by name, so a page boundary is stable", async () => {
+    const sameInstant = "2026-08-01T00:00:00Z";
+    await seedPackage({ name: "toml", created_at: sameInstant });
+    await seedPackage({ name: "http", created_at: sameInstant });
+    await seedPackage({ name: "zlib", created_at: sameInstant });
+
+    const { body } = await apiGet("/api/packages?sort=recent");
+
+    expect(names(body)).toEqual(["http", "toml", "zlib"]);
+  });
+
   it("sorts by updated, most recently updated first", async () => {
     // created_at order is the reverse of updated_at order, so a handler that
     // ignores `sort=updated` and falls through to `recent` fails here.
@@ -243,6 +293,41 @@ describe("GET /api/packages", () => {
     const { body } = await apiGet("/api/packages?sort=updated");
 
     expect(names(body)).toEqual(["fresh", "stale"]);
+  });
+
+  /**
+   * `sort=updated` needs its own tie-break case: `recent` and `updated` order by
+   * different columns, so one of them keeping `asc(name)` says nothing about the
+   * other.
+   *
+   * Three arrangements are load-bearing at once. The names are registered in
+   * neither the asserted order nor its reverse (see the `recent` case above for
+   * why the reverse would be blind); `updated_at` is shared so the tie-break is
+   * what separates them; and `created_at` *descending* is a third distinct order,
+   * so this also fails when `updated` falls through to `recent`'s column — the two
+   * are one word apart in the source.
+   */
+  it("breaks an updated_at tie by name, not by created_at", async () => {
+    const sameInstant = "2026-08-20T00:00:00Z";
+    await seedPackage({
+      name: "toml",
+      created_at: "2026-08-02T00:00:00Z",
+      updated_at: sameInstant,
+    });
+    await seedPackage({
+      name: "http",
+      created_at: "2026-08-01T00:00:00Z",
+      updated_at: sameInstant,
+    });
+    await seedPackage({
+      name: "zlib",
+      created_at: "2026-08-03T00:00:00Z",
+      updated_at: sameInstant,
+    });
+
+    const { body } = await apiGet("/api/packages?sort=updated");
+
+    expect(names(body)).toEqual(["http", "toml", "zlib"]);
   });
 
   it("sorts by name, ascending", async () => {
@@ -288,7 +373,7 @@ describe("GET /api/packages", () => {
     const { status, body } = await apiGet("/api/packages?trust=verified");
 
     expect(status).toBe(200);
-    expect(names(body)).toEqual(["by-verified"]);
+    expect(names(body)).toEqual(["attested"]);
     expect(body.total).toBe(1);
   });
 
@@ -307,7 +392,7 @@ describe("GET /api/packages", () => {
     const { status, body } = await apiGet("/api/packages?trust=trusted");
 
     expect(status).toBe(200);
-    expect(names(body)).toContain("by-verified");
+    expect(names(body)).toContain("attested");
     expect(names(body)).toContain("moderated");
     expect(names(body)).not.toContain("plain");
     expect(body.total).toBe(2);
@@ -347,7 +432,7 @@ describe("GET /api/packages", () => {
 
     expect(recognized.status).toBe(200);
     expect(recognized.body).toEqual(unfiltered.body);
-    expect(names(recognized.body)).toEqual(["by-verified", "moderated", "plain"]);
+    expect(names(recognized.body)).toEqual(["attested", "moderated", "plain"]);
   });
 
   it.each(["unrecognized", "banana"])(
@@ -369,6 +454,6 @@ describe("GET /api/packages", () => {
 
     const { body } = await apiGet("/api/packages?q=e&trust=verified");
 
-    expect(names(body)).toEqual(["by-verified"]);
+    expect(names(body)).toEqual(["attested"]);
   });
 });

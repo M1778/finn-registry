@@ -32,6 +32,9 @@ import {
   REGISTRATION_CHECK_KEYS,
   REPO_FACTS_KEYS,
 } from "../contract";
+// The rule under test, imported rather than restated: a test that carried its own
+// copy of the regex would keep passing after the regex changed.
+import { FIN_RESERVED_WORDS, NAME_RULE, validatePackageName } from "@/lib/package-name";
 
 const REPO_URL = "https://github.com/acme/fin-http";
 
@@ -452,13 +455,18 @@ describe("POST /api/packages", () => {
   // --- the name grammar, enforced server-side --------------------------------
 
   /**
-   * §2.1: a bare, lowercase, hyphen-separated name — `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`,
-   * 2 to 64 characters.
+   * §2.1, as narrowed by the owner on 2026-08-24: `^[a-z][a-z0-9]*$`, 2 to 64
+   * characters, and not one of Fin's reserved words.
    *
-   * The rule is currently enforced only in the browser (`src/app/new/page.tsx`),
-   * which means it is not enforced: these endpoints are reachable with a cookie
-   * and `curl`. A name that escapes the grammar is unfixable after the fact —
-   * `finn.toml` files in the wild will already refer to it.
+   * Enforced here rather than only in the browser, because these endpoints are
+   * reachable with a cookie and `curl`, and because a name that escapes the
+   * grammar is unfixable after the fact — `finn.toml` files in the wild will
+   * already refer to it.
+   *
+   * **The hyphen case below used to assert the opposite.** `fin-http` was a
+   * legal name until the rule narrowed, and it is inverted here rather than
+   * deleted so that the reversal is visible in the diff instead of looking like
+   * a case somebody forgot to write.
    */
   const invalidNames: Array<[string, string]> = [
     ["Http", "uppercase"],
@@ -469,7 +477,11 @@ describe("POST /api/packages", () => {
     ["-http", "leading hyphen"],
     ["http-", "trailing hyphen"],
     ["fin--http", "doubled hyphen"],
+    ["fin-http", "interior hyphen — legal until 2026-08-24, refused since"],
+    ["x-2-y", "interior hyphens between digits"],
     ["fin http", "space"],
+    [" http", "leading whitespace"],
+    ["http ", "trailing whitespace"],
     ["h", "shorter than 2 characters"],
     ["a".repeat(65), "longer than 64 characters"],
     ["", "empty"],
@@ -489,7 +501,72 @@ describe("POST /api/packages", () => {
     expect(body.name).toBeUndefined();
   });
 
-  it.each(["ht", "fin-http", "a1", "x-2-y", "a".repeat(64)])(
+  /**
+   * The denylist, sampled rather than exhausted.
+   *
+   * One word from each shape it can take: a control keyword, a type name, a
+   * boolean literal, a two-letter word that is easy to think of as too small to
+   * matter, and `m1778` — Fin's "not implemented" expression, and the one entry
+   * `finn`'s `FIN_KEYWORDS` does not carry. The whole set is asserted below by
+   * iterating the exported constant, which is what makes this list a sample and
+   * not a specification.
+   */
+  it.each(["let", "type", "string", "true", "as", "m1778"])(
+    "refuses %j, which is a reserved word in Fin",
+    async (name) => {
+      const session = await signIn();
+      stubRepo(githubRepo());
+
+      const { status, body } = await apiPost("/api/packages", {
+        token: session.token,
+        body: { ...validBody, name },
+      });
+
+      expect(status).toBe(400);
+      expectErrorEnvelope(body);
+      expect(body.message).toContain("reserved word");
+      expect((await apiGet(`/api/packages/${name}`)).status).toBe(404);
+    },
+  );
+
+  /**
+   * Every reserved word, through the real endpoint's validator.
+   *
+   * Asserted against `validatePackageName` rather than by 58 HTTP round trips:
+   * the sample above proves the endpoint calls it, and this proves the endpoint
+   * would refuse every member of the set. Each word is also checked to satisfy
+   * the grammar — a denylist entry that could not be spelled as a name in the
+   * first place (`Self`, `as_ptr`) is dead weight and hides a transcription
+   * error behind a test that passes anyway.
+   */
+  it("refuses every word in the reserved set, and reserves nothing unspellable", () => {
+    expect(FIN_RESERVED_WORDS.size).toBeGreaterThan(0);
+
+    for (const word of FIN_RESERVED_WORDS) {
+      expect(NAME_RULE.test(word), `${word} could not be a name anyway`).toBe(true);
+      expect(word.length, `${word} is outside the length bounds`).toBeGreaterThanOrEqual(2);
+      expect(validatePackageName(word), `${word} was not refused`).toContain("reserved word");
+    }
+  });
+
+  /**
+   * The words the narrowing deliberately did **not** reserve.
+   *
+   * `import { A, B } from "<name>";` takes the path as a string literal, which
+   * never lexes as a keyword, so a name colliding with a *future* Fin keyword
+   * loses its other import forms and keeps that one — a degradation, not a
+   * break. Reserving plausible futures would spend these names permanently to
+   * prevent it. This test is here so that adding one is a deliberate act.
+   */
+  it.each(["select", "union", "assert", "some", "none", "with", "go", "match", "await"])(
+    "does not reserve %j, which Fin does not have today",
+    (name) => {
+      expect(FIN_RESERVED_WORDS.has(name)).toBe(false);
+      expect(validatePackageName(name)).toBeNull();
+    },
+  );
+
+  it.each(["ht", "http", "a1", "a".repeat(64), "x2y", "httpclient"])(
     "accepts the valid name %j",
     async (name) => {
       const session = await signIn();

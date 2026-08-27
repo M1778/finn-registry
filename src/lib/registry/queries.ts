@@ -78,6 +78,56 @@ export const packageColumns = {
   updatedAt: packages.updatedAt,
 } as const;
 
+/**
+ * The columns the publisher's own counterfoil needs, and nothing more.
+ *
+ * Deliberately *not* `packageColumns`: that set is what a §3 serializer reads, and
+ * the dashboard reads less of a package and one thing more. It needs the row id,
+ * which no serialized record carries, and it has no use for `repoUrl`, `license`,
+ * `keywords`, `homepage`, `deprecationMessage` or `updatedAt` — none of which the
+ * page renders.
+ *
+ * It lives here rather than beside the handler so that every "which columns does
+ * this reader need" answer is in one file: adding a column to `packages` should
+ * mean one place to look and one decision per reader, and the column that started
+ * this — `downloads`, spread onto every dashboard entry by a `{ ...pkg }` — is
+ * exactly what an implicit `select()` costs.
+ */
+export const dashboardPackageColumns = {
+  id: packages.id,
+  name: packages.name,
+  description: packages.description,
+  isTrusted: packages.isTrusted,
+  isDeprecated: packages.isDeprecated,
+  createdAt: packages.createdAt,
+} as const;
+
+/**
+ * The columns the counterfoil publishes about the account itself.
+ *
+ * `publisherColumns` plus the three things only the account itself is shown — its
+ * own contact `email`, its moderation `role`, and when it joined. It leaves out
+ * the internal `id`, the `githubId`, and the `bio`/`location`/`blog` columns that
+ * no page renders and no form offers.
+ *
+ * Written out rather than left implicit because `GET /api/auth/status` does the
+ * opposite — it hands back the whole `users` row, which REGISTRY-API.md §7 says in
+ * as many words, so a column added to the table is published there by default.
+ * This list is what stops that being true of the dashboard as well. Nothing on
+ * `users` is a credential today (the GitHub access token a sign-in was minted with
+ * lives on `sessions`, ADR-0004), and the point of naming the columns is that
+ * whether that stays true is not something this handler has to depend on.
+ */
+export const dashboardUserColumns = {
+  login: users.login,
+  name: users.name,
+  email: users.email,
+  avatarUrl: users.avatarUrl,
+  role: users.role,
+  isVerified: users.isVerified,
+  createdAt: users.createdAt,
+} as const;
+
 export const publisherColumns = {
   login: users.login,
   name: users.name,

@@ -120,9 +120,13 @@ describe("GET /api/packages/:name/versions", () => {
   });
 
   it("still lists a yanked version, flagged", async () => {
+    // Seeded low-to-high on purpose: with `1.0.0` first, insertion order already
+    // equalled the asserted order, so a comparator that had stopped ordering
+    // anything at all left this assertion green. It is the order assertion that
+    // covers the *yanked* path specifically, so it has to be able to fail.
     await seedPackage({
       name: "http",
-      versions: [{ version: "1.0.0", yanked: true }, { version: "0.9.0" }],
+      versions: [{ version: "0.9.0" }, { version: "1.0.0", yanked: true }],
     });
 
     const { body } = await apiGet("/api/packages/http/versions");

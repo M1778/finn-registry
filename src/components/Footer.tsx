@@ -14,6 +14,7 @@ const COLUMNS = [
     title: "Reference",
     links: [
       { label: "Docs", href: "/docs" },
+      { label: "Source", href: "https://github.com/M1778/finn-registry" },
       { label: "Privacy", href: "/privacy" },
       { label: "Terms", href: "/terms" },
     ],
@@ -40,12 +41,23 @@ export default function Footer() {
               <ul className="mt-4 space-y-2.5">
                 {column.links.map((link) => (
                   <li key={link.href}>
-                    <Link
-                      href={link.href}
-                      className="text-ink-muted hover:text-ink text-sm transition-colors"
-                    >
-                      {link.label}
-                    </Link>
+                    {link.href.startsWith("https://") ? (
+                      <a
+                        href={link.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-ink-muted hover:text-ink text-sm transition-colors"
+                      >
+                        {link.label}
+                      </a>
+                    ) : (
+                      <Link
+                        href={link.href}
+                        className="text-ink-muted hover:text-ink text-sm transition-colors"
+                      >
+                        {link.label}
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -53,8 +65,10 @@ export default function Footer() {
           ))}
         </div>
 
+        {/* AGPL-3.0 §13: whoever runs this must offer its users the source. Naming the
+            licence here is what makes the "Source" link above legible as that offer. */}
         <p className="eyebrow rule-top mt-10 pt-6">
-          finn-registry · {new Date().getFullYear()}
+          finn-registry · {new Date().getFullYear()} · AGPL-3.0
         </p>
       </div>
     </footer>

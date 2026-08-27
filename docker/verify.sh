@@ -28,6 +28,13 @@ step "Build the Worker"
 # graphs — see next.config.ts — and only one of them is deployed.
 npm run cf:build
 
+step "Check the callback origin is still a runtime read"
+# The one class of defect the test suite cannot see. vitest runs on Node against
+# source; `NEXT_PUBLIC_*` inlining happens only in a build, so an origin frozen
+# into the artifact is invisible to every test in tests/ by construction. This
+# runs after cf:build because the artifact is the only place the evidence exists.
+node docker/check-frozen-origin.mjs
+
 step "Tests"
 npm test
 
@@ -68,46 +75,119 @@ npx wrangler dev -c docker/wrangler.no-db.jsonc --port 8788 --ip 127.0.0.1 \
 nodb_pid=$!
 trap 'kill "${nodb_pid}" 2>/dev/null || true' EXIT
 
+# Both halves of this check are one script on purpose. The previous version split
+# them — a Node probe asserting a 5xx, then a bash loop grepping the log — and the
+# split is what made it report "the 5xx did not mention the missing binding" while
+# the 5xx assertion passed. Three separate reasons, all of them in the check rather
+# than in the error message, which does name the cause:
+#
+#   1. No readiness gate. The probe looped until a connection succeeded and took
+#      the first status it got. During boot, wrangler answers on the port before
+#      the user Worker is running, so a 5xx from wrangler itself satisfied
+#      `status >= 500` — a pass produced by no handler, which therefore logged
+#      nothing for the grep to find.
+#   2. The assertion was `>= 500` and nothing else. A wrangler-level 5xx and this
+#      registry`s `internal_error` envelope are the two things that most need
+#      telling apart here, and any-5xx cannot tell them apart.
+#   3. The log poll never re-requested. Having missed its one chance to make a
+#      handler run, it spent 20 seconds re-reading a log that nothing was going to
+#      write to.
+#
+# So: gate on `/api/health`, which returns 200 with no database and is the only
+# route that does; assert the envelope, not the status class; and re-request on
+# every poll iteration, because the message only exists if a handler ran.
 node --input-type=module -e '
+import { readFileSync } from "node:fs";
+
 const base = "http://127.0.0.1:8788";
-const deadline = Date.now() + 90_000;
-let status = null;
-while (Date.now() < deadline) {
+const log = "/tmp/wrangler-no-db.log";
+const WANTED = "No D1 binding named DB";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const logged = () => {
   try {
-    const res = await fetch(`${base}/api/packages`);
-    status = res.status;
-    break;
+    return readFileSync(log, "utf8").includes(WANTED);
   } catch {
-    await new Promise((r) => setTimeout(r, 500));
+    return false;
   }
+};
+
+// Readiness. `/api/health` is deliberately databaseless (router.ts), so a 200
+// here means the user Worker is running and nothing else. Until it answers, a
+// response from this port is wrangler talking, not the registry.
+let ready = false;
+const bootDeadline = Date.now() + 90_000;
+let lastBootError = "never responded";
+while (Date.now() < bootDeadline) {
+  try {
+    const res = await fetch(`${base}/api/health`);
+    if (res.ok) { ready = true; break; }
+    lastBootError = `HTTP ${res.status}`;
+  } catch (err) {
+    lastBootError = err.message;
+  }
+  await sleep(500);
 }
-if (status === null) throw new Error("worker never accepted a connection");
-if (status < 500) throw new Error(`expected a 5xx without a D1 binding, got ${status}`);
-console.log(`  ok    /api/packages -> ${status} without a D1 binding`);
+if (!ready) {
+  console.log(`  FAIL  worker never became ready (${lastBootError})`);
+  process.exit(1);
+}
+
+// The request that must fail, and the shape it must fail in.
+let body = "";
+let status = 0;
+const probe = async () => {
+  const res = await fetch(`${base}/api/packages`);
+  status = res.status;
+  body = await res.text();
+};
+await probe();
+
+if (status !== 500) {
+  console.log(`  FAIL  /api/packages returned ${status} without a D1 binding, wanted 500`);
+  console.log(`        ${body.slice(0, 400)}`);
+  process.exit(1);
+}
+
+let envelope = null;
+try {
+  envelope = JSON.parse(body);
+} catch {
+  console.log("  FAIL  the 500 body is not JSON, so it did not come from the registry");
+  console.log(`        ${body.slice(0, 400)}`);
+  process.exit(1);
+}
+if (envelope?.error !== "internal_error") {
+  console.log(`  FAIL  the 500 is not the registry\u0027s error envelope: ${body.slice(0, 400)}`);
+  process.exit(1);
+}
+console.log("  ok    /api/packages -> 500 internal_error without a D1 binding");
+
+// Now the message itself. The Worker`s console output travels workerd ->
+// wrangler -> this file asynchronously and routinely lands after the response
+// that caused it, so this waits rather than grepping once. It also re-requests
+// each time round: if the first request somehow did not reach the handler, the
+// line will never appear no matter how long a grep loop waits.
+let named = logged();
+const logDeadline = Date.now() + 20_000;
+while (!named && Date.now() < logDeadline) {
+  await sleep(1000);
+  named = logged();
+  if (named) break;
+  try { await probe(); } catch { /* the assertions above already passed once */ }
+  named = logged();
+}
+
+if (named) {
+  console.log("  ok    the error names the missing binding");
+  process.exit(0);
+}
+
+console.log("  FAIL  the 500 never named the missing binding, so something else threw");
+console.log(`        last body: ${body.slice(0, 400)}`);
+console.log("----- wrangler log (no-db) -----");
+try { process.stdout.write(readFileSync(log, "utf8")); } catch { console.log("(no log file)"); }
+console.log("----- end -----");
+process.exit(1);
 '
-
-# Poll rather than grep once. The Worker's console output travels workerd ->
-# wrangler -> this file asynchronously, so it routinely lands after the response
-# that caused it: a single grep here read a log holding nothing but wrangler's
-# startup banner. The wait is what makes a missing message mean missing.
-named=""
-deadline=$((SECONDS + 20))
-while [ "${SECONDS}" -lt "${deadline}" ]; do
-  if grep -q "No D1 binding named DB" /tmp/wrangler-no-db.log; then
-    named="yes"
-    break
-  fi
-  sleep 1
-done
-
-if [ -n "${named}" ]; then
-  echo "  ok    the error names the missing binding"
-else
-  echo "  FAIL  the 5xx never named the missing binding, so something else threw"
-  echo "----- wrangler log (no-db) -----"
-  cat /tmp/wrangler-no-db.log
-  echo "----- end -----"
-  exit 1
-fi
 
 step "All gates passed"

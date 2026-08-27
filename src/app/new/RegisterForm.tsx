@@ -7,6 +7,11 @@ import Countersignature from "@/components/registry/Countersignature";
 import { useCaptcha } from "@/lib/use-captcha";
 import { SEAL_MEANING } from "@/components/registry/Seal";
 import type { PackageRecord, TrustLevel } from "@/types/registry";
+// The rule itself lives in one module, imported rather than restated. A second
+// copy here would be a copy that drifts, and the form would then accept a name
+// the endpoint refuses at the signature — after three steps of work.
+import { NAME_MAX, validatePackageName } from "@/lib/package-name";
+import { deriveTrustLevel } from "@/lib/trust";
 
 /**
  * The registration form.
@@ -26,9 +31,6 @@ import type { PackageRecord, TrustLevel } from "@/types/registry";
  * session check is still in flight instead of watching a placeholder pulse.
  */
 
-const NAME_RULE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-const NAME_MIN = 2;
-const NAME_MAX = 64;
 
 interface Viewer {
   login: string;
@@ -59,15 +61,24 @@ type NameState =
   | { status: "available" }
   | { status: "taken" };
 
-/** `acme/fin-http` → `http`. A Fin package repo conventionally carries the
- *  prefix; the registered name is bare (contract §2.1). */
+/**
+ * `acme/fin-http` → `http`. A Fin package repo conventionally carries the
+ * prefix; the registered name is bare (contract §2.1).
+ *
+ * Separators are **dropped**, not converted: `fin-http-client` suggests
+ * `httpclient`, because a name is lowercase letters and digits only and a
+ * suggestion of `http-client` would arrive pre-refused. Anything that still
+ * fails the rule — a repo named `1x`, or one whose stem is a Fin keyword —
+ * suggests nothing at all, which leaves the field empty for the registrant
+ * instead of filling it with an error they did not type.
+ */
 function suggestName(fullName: string) {
   const repo = fullName.split("/").pop() ?? "";
-  return repo
+  const candidate = repo
     .toLowerCase()
     .replace(/^fin{1,2}-/, "")
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/[^a-z0-9]+/g, "");
+  return validatePackageName(candidate) ? "" : candidate;
 }
 
 function normalizeRepoUrl(input: string) {
@@ -79,21 +90,8 @@ function normalizeRepoUrl(input: string) {
 
 function validateName(value: string): NameState {
   if (!value) return { status: "empty" };
-  if (value.length < NAME_MIN)
-    return { status: "invalid", reason: `At least ${NAME_MIN} characters.` };
-  if (value.length > NAME_MAX)
-    return { status: "invalid", reason: `At most ${NAME_MAX} characters.` };
-  if (value.includes("/"))
-    return {
-      status: "invalid",
-      reason: "Names are bare — no slash. A slash always means GitHub to finn.",
-    };
-  if (!NAME_RULE.test(value))
-    return {
-      status: "invalid",
-      reason:
-        "Lowercase letters, digits and single hyphens. Must start with a letter.",
-    };
+  const problem = validatePackageName(value);
+  if (problem) return { status: "invalid", reason: problem };
   return { status: "checking" };
 }
 
@@ -295,8 +293,23 @@ export default function RegisterForm() {
   // confirmed. A new registration is `recognized` — the floor — unless the
   // publisher is already verified, in which case verification travels to it.
   const draft: PackageRecord | null = useMemo(() => {
-    if (!viewer || access.status !== "granted" || !name) return null;
-    const level: TrustLevel = viewer.isVerified ? "verified" : "recognized";
+    // Push access proven for this repository, in this session, by
+    // `POST /registrations/check` — `granted` is set from GitHub's answer and
+    // from nowhere else. The preview's ownership signal is *measured* here
+    // rather than read from `REPO_OWNERSHIP_CONFIRMED`: nothing is registered
+    // yet, so there is no row for that register-wide invariant to hold of.
+    const repoOwnershipConfirmed = access.status === "granted";
+    if (!viewer || !name || !repoOwnershipConfirmed) return null;
+
+    // The ladder the API publishes, called rather than restated. A preview that
+    // disagreed with the record it previews would be worse than no preview.
+    const level: TrustLevel = deriveTrustLevel({
+      publisherVerified: viewer.isVerified,
+      // A name that does not exist yet can carry no moderator's vouch.
+      packageTrusted: false,
+      repoOwnershipConfirmed,
+    });
+
     return {
       name,
       description: access.repo.description,
@@ -316,11 +329,11 @@ export default function RegisterForm() {
         level,
         publisher_verified: viewer.isVerified,
         package_trusted: false,
-        repo_ownership_confirmed: true,
+        repo_ownership_confirmed: repoOwnershipConfirmed,
       },
       is_deprecated: false,
       deprecation_message: null,
-          created_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
   }, [viewer, access, name]);

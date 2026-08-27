@@ -48,6 +48,40 @@ const workerDropped: Record<string, string> = {
 const nextConfig: NextConfig = {
   // Docs are .mdx files that are real routes under src/app/docs/.
   pageExtensions: ["ts", "tsx", "md", "mdx"],
+  /**
+   * Framing is denied for every page, as it is for every API response.
+   *
+   * The router sets these itself for everything under `/api` (see `router.ts`),
+   * because that is application code and ships wherever the router ships. The
+   * pages cannot be covered that way — they are server components with no
+   * request-level hook of their own — so they are covered here, which means
+   * build configuration, which means this half is only as good as whether
+   * OpenNext actually emits it on the Worker. `next dev` honouring it proves
+   * nothing about the deploy target; a header that exists only in development is
+   * worse than none, because it reads as covered. See the report for the probe
+   * against the built Worker on workerd.
+   *
+   * `source: "/(.*)"` rather than `"/:path*"` so that the root path is included:
+   * the two are usually equivalent but differ on `/`, and the home page is a
+   * page like any other.
+   *
+   * The API paths match here too, and are then set again by the router's own
+   * middleware. That is deliberate duplication for the same reason the two
+   * headers are both sent — whichever layer is bypassed, the other still speaks
+   * — and it is not additive: both layers set identical values, so the header
+   * cannot end up with two conflicting values the way an appended one could.
+   */
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+        ],
+      },
+    ];
+  },
   webpack: (config, { isServer }) => {
     // Client bundles never reach for a database driver, so there is nothing to
     // drop there and `externals` may not even be an array.

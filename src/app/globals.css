@@ -332,6 +332,149 @@
     line-height: 1.6;
     color: var(--ink-muted);
   }
+
+  /* Markdown we did not write: a rendered README.
+
+     This is what `@tailwindcss/typography` would otherwise be for, and it was
+     tried. The plugin cannot be used here. Its `.prose` lands in the utilities
+     layer, so its colour beats `.reading` in this layer, and `prose-invert` is
+     an unconditional class with no theme in it — on the paper theme a README
+     came out at 1.25:1 against `--ground` where `--ink` gives 14.44:1. The
+     plugin's whole colour layer would have had to be neutralised token by
+     token to get back to where the tokens already are, so the elements are
+     styled here instead, off the same variables as everything else.
+
+     Selectors are descendants because the markup comes from ReactMarkdown and
+     there is no call site to put a class on. `.readme x` is (0,1,1), so it
+     beats `.reading` alongside it without !important, and the `[&_...]`
+     utilities on the element still win over both. */
+  .readme > * + * {
+    margin-top: 1.1em;
+  }
+
+  .readme h1,
+  .readme h2,
+  .readme h3,
+  .readme h4,
+  .readme h5,
+  .readme h6 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+    color: var(--ink);
+    margin-top: 2em;
+  }
+
+  .readme > :first-child {
+    margin-top: 0;
+  }
+
+  .readme h1 { font-size: 1.6em; }
+  .readme h2 { font-size: 1.35em; }
+  .readme h3 { font-size: 1.15em; }
+  .readme h4,
+  .readme h5,
+  .readme h6 { font-size: 1em; }
+
+  /* A README's own h1 usually repeats the package name, which the page has
+     already set in the header, so it is ruled off rather than shouted. */
+  .readme h1,
+  .readme h2 {
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .readme a {
+    color: var(--ink);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  .readme strong { font-weight: 600; color: var(--ink); }
+  .readme em { font-style: italic; }
+
+  .readme ul,
+  .readme ol {
+    padding-left: 1.5em;
+  }
+
+  .readme ul { list-style: disc; }
+  .readme ol { list-style: decimal; }
+  .readme li + li { margin-top: 0.35em; }
+  .readme li > ul,
+  .readme li > ol { margin-top: 0.35em; }
+
+  /* An identifier, same as everywhere else in the register (rule 3). */
+  .readme code {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    letter-spacing: -0.02em;
+    font-size: 0.9em;
+    background-color: var(--recessed);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-xs);
+    padding: 0.1em 0.35em;
+  }
+
+  .readme pre {
+    background-color: var(--recessed);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-xs);
+    padding: 0.9rem 1rem;
+    line-height: 1.5;
+  }
+
+  /* Inside a fence the box is the `pre`, so the `code` drops its own. */
+  .readme pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: 0.875rem;
+  }
+
+  .readme blockquote {
+    border-left: 2px solid var(--rule-strong);
+    padding-left: 1em;
+    color: var(--ink-muted);
+  }
+
+  .readme hr {
+    border: 0;
+    border-top: 1px solid var(--rule);
+  }
+
+  .readme table {
+    border-collapse: collapse;
+    border: 1px solid var(--rule);
+    font-size: 0.9375rem;
+  }
+
+  .readme th,
+  .readme td {
+    border: 1px solid var(--rule);
+    padding: 0.375rem 0.75rem;
+    text-align: left;
+  }
+
+  .readme th {
+    font-family: var(--font-display);
+    font-weight: 600;
+    background-color: var(--recessed);
+  }
+
+  .readme img {
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-xs);
+  }
+
+  /* Shields and badges travel in rows and are not documents. */
+  .readme img[src*="shields.io"],
+  .readme img[src*="badge"] {
+    border: 0;
+    border-radius: 0;
+    display: inline-block;
+  }
 }
 
 @layer utilities {

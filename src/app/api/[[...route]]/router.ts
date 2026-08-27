@@ -18,7 +18,7 @@ import {
   generateRandomString,
   hasRepositoryScope,
 } from "@/lib/security";
-import { deriveTrustLevel } from "@/lib/trust";
+import { deriveTrustLevel, REPO_OWNERSHIP_CONFIRMED } from "@/lib/trust";
 import {
   CAPTCHA_HEADER,
   CAPTCHA_MESSAGES,
@@ -29,6 +29,12 @@ import {
 import { canonicalRepoUrl, checkPushAccess, parseGitHubRepo } from "./github";
 import { isoTimestamp, serializePackage, serializeVersionWithRepo } from "./serializers";
 import { isExactVersion } from "./semver";
+/**
+ * §2.1's name grammar, and the only copy of it. `validatePackageName` is
+ * enforced here and not only in the browser: the form is a convenience, this is
+ * the rule, and these endpoints are reachable with a cookie and `curl`.
+ */
+import { validatePackageName } from "@/lib/package-name";
 
 /**
  * The read queries these handlers used to define for themselves.
@@ -40,6 +46,8 @@ import { isExactVersion } from "./semver";
  * hands it over rather than making the module look it up again.
  */
 import {
+  dashboardPackageColumns,
+  dashboardUserColumns,
   findPackage,
   findPublisher,
   latestVersionOf,
@@ -94,6 +102,47 @@ const writeLimit = rateLimit({
   max: 100,
   message: "Too many requests from this IP",
   keyGenerator: (c) => `${clientIp(c)}:write`,
+});
+
+/**
+ * Framing is denied for everything this router serves.
+ *
+ * Nothing in this product is meant to be embedded — there is no widget, no embed
+ * route, no `iframe` anywhere in `src/` — so this is a flat denial rather than an
+ * allowlist. It is here because the sign-in flow is the part that most needs it:
+ * the interstitial's URL carries the OAuth `state`, and a scaffold left over from
+ * a preview tool used to post that URL to whatever framed the page. The branch is
+ * gone; this makes sure its premise cannot come back the next time somebody
+ * pastes a block of frame-aware code.
+ *
+ * Both headers, on purpose. They are not redundant in the way they look:
+ * `X-Frame-Options` is not a standard, `ALLOW-FROM` never worked, and it is the
+ * only one some older engines honour — while `frame-ancestors` is the one that is
+ * actually specified, and the only one that constrains a nested chain of frames
+ * rather than just the immediate parent. Sending one and not the other means
+ * picking which browsers to protect.
+ *
+ * `frame-ancestors` is the *only* directive in this CSP, and that is a
+ * constraint, not an omission. The proof-of-work bootstrap and the sign-in
+ * interstitial are inline `<script>` blocks with no bundle behind them — there is
+ * no build step on those pages and no nonce plumbing — so adding `default-src`
+ * or `script-src` here would stop sign-in working. A test pins the directive
+ * count so that a later, well-meant "let us tighten the CSP" fails loudly rather
+ * than silently breaking the gate.
+ *
+ * Set on the response after `next()`, so it lands on every route, error handler
+ * and 404 alike rather than only the handlers that remembered to ask. Written as
+ * a plain inline handler rather than through `createMiddleware` from
+ * `hono/factory`: the factory only adds typing that the `app.use` overload
+ * already supplies, and next.config.ts records at length how easily a new module
+ * specifier resolves differently under esbuild's `workerd` conditions than under
+ * Next's `node` ones. There is no reason to put a new subpath import into the
+ * Worker graph for four lines of header setting.
+ */
+app.use("*", async (c, next) => {
+  await next();
+  c.res.headers.set("X-Frame-Options", "DENY");
+  c.res.headers.set("Content-Security-Policy", "frame-ancestors 'none'");
 });
 
 app.use("*", readLimit);
@@ -239,25 +288,68 @@ async function getAuth(c: any): Promise<AuthenticatedUser | null> {
   return null;
 }
 
-// Get request origin
-function getOrigin(c: any) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL;
-  if (appUrl) {
-    return appUrl.replace(/\/$/, "");
-  }
-
-  const host = c.req.header("x-forwarded-host") || c.req.header("host") || "";
-  const proto = c.req.header("x-forwarded-proto") || "https";
-
-  let originHost = host;
-  // Handle Daytona/Orchids proxying
-  if (host.includes(".proxy.daytona.works")) {
-    originHost = host.replace(".proxy.daytona.works", ".orchids.page");
-  }
-
-  const origin = `${proto}://${originHost}`;
-  return origin.replace(/\/$/, "");
+/**
+ * The origin this deployment answers on, or `null` if nobody configured one.
+ *
+ * Configuration is the only source. This used to fall back to `x-forwarded-host`
+ * or `host` when neither variable was set, which let a header any client can
+ * send help build the `redirect_uri` handed to GitHub — in the authorize URL and
+ * again in the token exchange. GitHub caught the consequence, because it matches
+ * `redirect_uri` against the OAuth app's registered callback and refuses a host
+ * that does not match, so a poisoned origin failed the exchange rather than
+ * delivering an authorization code anywhere. That made it latent rather than
+ * live, and it is still not a decision a request header gets to take part in.
+ *
+ * Absent the variable the caller refuses and names it, the way a missing
+ * `GITHUB_CLIENT_ID` already does. Guessing would turn "this deployment never
+ * set `APP_URL`" into GitHub's opaque `redirect_uri_mismatch`, which reads as
+ * "the OAuth app is misconfigured" — a different problem needing different
+ * words. Not knowing the origin and guessing it are different things, and only
+ * one of them is safe.
+ *
+ * Callers that only need to point at this site should use a site-relative path
+ * instead of calling this: a relative URL cannot be poisoned by anything, and
+ * needs no configuration to be correct.
+ *
+ * `APP_URL` AND NOTHING ELSE, and specifically not `NEXT_PUBLIC_APP_URL`. This
+ * read used to be `NEXT_PUBLIC_APP_URL || APP_URL`, which looked like a harmless
+ * convenience and was not, because the two are not the same kind of value.
+ * `NEXT_PUBLIC_*` is a *build-time* inline: Next substitutes the literal into the
+ * compiled output, so a value present on the build machine is frozen into the
+ * artifact. `wrangler.jsonc` `vars` are a *runtime* value, and they arrive in
+ * `process.env` when the Worker starts. Preferring the inline therefore made the
+ * documented configuration mechanism a no-op, and worse than a no-op: with a
+ * stray `.env.local` on the build box this function compiled to
+ *
+ *     function bb(){let a="http://130.185.120.193:3000"; ... }
+ *
+ * — the minifier saw a truthy constant on the left of `||` and deleted the
+ * `process.env.APP_URL` branch outright. The deployment then built its
+ * `redirect_uri` from whatever origin the build machine happened to carry, no
+ * `APP_URL` could reach it, and the placeholder guard below could never fire
+ * because there was no longer a variable for it to test.
+ *
+ * `src/app/layout.tsx` still reads `NEXT_PUBLIC_APP_URL`, and should: it feeds
+ * `metadataBase`, which is baked into prerendered HTML anyway, so build-time is
+ * the correct time for it. Same variable name, genuinely different requirement —
+ * which is exactly why one function must not serve both.
+ */
+function configuredOrigin(): string | null {
+  const appUrl = process.env.APP_URL;
+  if (!appUrl) return null;
+  // The repository's placeholder idiom, refused in origin position for the
+  // reason `registry/v1/url.txt` sets out: a value that validates but is not an
+  // answer is worse than no value, because it turns "nobody configured this"
+  // into a failure that describes something else. `wrangler.jsonc` ships
+  // `https://REPLACE_WITH_DEPLOYMENT_ORIGIN`, which would otherwise sail through
+  // and come back as GitHub's `redirect_uri_mismatch`.
+  if (/REPLACE[_-]WITH/i.test(appUrl)) return null;
+  return appUrl.replace(/\/$/, "");
 }
+
+/** Said in both places that need an origin, so they say it identically. */
+const ORIGIN_UNCONFIGURED =
+  "APP_URL is not set, so the OAuth callback URL cannot be built. Set it to the origin this deployment answers on — it has to match the GitHub app's registered callback exactly, port included.";
 
 // ---------------------------------------------------------------------------
 // §3.6 Health
@@ -376,7 +468,9 @@ app.get("/stats", async (c) => {
       trustLevel: deriveTrustLevel({
         publisherVerified: row.publisherVerified,
         packageTrusted: row.isTrusted,
-        repoOwnershipConfirmed: true,
+        // The register-wide invariant, not a column and not a local `true`: this
+        // is a published level for a real row, so it reads the one definition.
+        repoOwnershipConfirmed: REPO_OWNERSHIP_CONFIRMED,
       }),
       publisherLogin: row.publisherLogin,
       publisherVerified: row.publisherVerified,
@@ -685,52 +779,12 @@ app.get("/publishers/:login", async (c) => {
 // §3.10 Registration (browser only)
 // ---------------------------------------------------------------------------
 
-/**
- * §2.1 name grammar: lowercase letters, digits, single interior hyphens, must
- * start with a letter. No slash — a slash always means GitHub to `finn`
- * (ADR-0002), so a name containing one could never be resolved as a bare name.
- *
- * Enforced here and not only in the browser: the form is a convenience, this is
- * the rule.
- */
-const NAME_RULE = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
-const NAME_MIN = 2;
-const NAME_MAX = 64;
-
 /** Registration is a write and a GitHub API call, so it gets its own ceiling. */
 const registerLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
   keyGenerator: (c: any) => `${clientIp(c)}:register`,
 });
-
-function validateName(name: unknown): string | null {
-  if (typeof name !== "string" || name.trim() === "") {
-    return "A name is required.";
-  }
-
-  const value = name.trim();
-  if (value !== name) {
-    return "A name cannot begin or end with whitespace.";
-  }
-  if (value.length < NAME_MIN) {
-    return `A name needs at least ${NAME_MIN} characters.`;
-  }
-  if (value.length > NAME_MAX) {
-    return `A name can be at most ${NAME_MAX} characters.`;
-  }
-  if (value.includes("/")) {
-    return "Names are bare — no slash. A slash always means GitHub to finn.";
-  }
-  if (!NAME_RULE.test(value)) {
-    return (
-      "A name uses lowercase letters, digits and single hyphens between them, " +
-      "and must start with a letter."
-    );
-  }
-
-  return null;
-}
 
 /** Untrusted free text, kept short so a row cannot be used as storage. */
 function trimmedText(value: unknown, max: number): string | null {
@@ -868,7 +922,7 @@ app.post("/packages", registerLimit, async (c) => {
     return badRequest(c, "invalid_request", "The request body must be JSON.");
   }
 
-  const nameProblem = validateName(body.name);
+  const nameProblem = validatePackageName(body.name);
   if (nameProblem) {
     return badRequest(c, "invalid_name", nameProblem);
   }
@@ -991,27 +1045,84 @@ app.post("/packages", registerLimit, async (c) => {
 // Web auth flow
 // ---------------------------------------------------------------------------
 
-// Auth error page
+/**
+ * Escapes text for interpolation into an HTML template.
+ *
+ * The five characters that can end an element, start one, or close an attribute.
+ * Everything the error page interpolates goes through this — not because most of
+ * today's call sites pass constants we wrote, but because the next person to add
+ * one will not check, and one of the current seven already passes GitHub's own
+ * `error_description` straight through.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Auth error page.
+ *
+ * Styles are inlined. This page is reachable when a sign-in has just failed,
+ * which is exactly the moment the network is least trustworthy, and it used to
+ * pull its entire stylesheet from `cdn.tailwindcss.com` — an error page that
+ * needs the network to render is one that goes blank when the network is the
+ * thing that is wrong. The handful of rules it actually used are written out
+ * below instead; this is not worth a build step.
+ *
+ * The two links are site-relative on purpose. They point at this site, so they
+ * need no origin, and a relative URL cannot be poisoned by a request header.
+ */
 function authError(c: any, title: string, message: string, details?: string) {
-  const origin = getOrigin(c);
-  const detailsHtml = details ? `<div class="bg-black/50 p-4 mb-6 border border-zinc-800 text-red-400 text-sm mono">${details}</div>` : "";
+  const detailsHtml = details
+    ? `<div class="details">${escapeHtml(details)}</div>`
+    : "";
 
   return c.html(`
     <!DOCTYPE html>
     <html lang="en">
     <head>
       <meta charset="UTF-8"><title>Auth Error - Finn Registry</title>
-      <script src="https://cdn.tailwindcss.com"></script>
-      <style>body { font-family: system-ui; background: #09090b; color: #fafafa; }</style>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body {
+          font-family: system-ui, sans-serif; background: #09090b; color: #fafafa;
+          min-height: 100vh; margin: 0; display: flex; align-items: center;
+          justify-content: center; padding: 1rem;
+        }
+        .card {
+          max-width: 36rem; width: 100%; background: #18181b;
+          border: 1px solid #27272a; border-radius: 1.5rem; padding: 2rem;
+          box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+        }
+        h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 1rem; }
+        .message { color: #a1a1aa; margin: 0 0 1.5rem; }
+        .details {
+          background: rgb(0 0 0 / 0.5); padding: 1rem; margin-bottom: 1.5rem;
+          border: 1px solid #27272a; color: #f87171; font-size: 0.875rem;
+          font-family: ui-monospace, monospace; overflow-wrap: anywhere;
+        }
+        .actions { display: flex; gap: 0.75rem; }
+        .actions a {
+          flex: 1; font-weight: 600; padding: 0.75rem; border-radius: 0.75rem;
+          text-align: center; text-decoration: none;
+        }
+        .primary { background: #f4f4f5; color: #09090b; }
+        .secondary { background: #27272a; color: #f4f4f5; border: 1px solid #3f3f46; }
+      </style>
     </head>
-    <body class="min-h-screen flex items-center justify-center p-4">
-      <div class="max-w-xl w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
-        <h1 class="text-2xl font-bold mb-4">${title}</h1>
-        <p class="text-zinc-400 mb-6">${message}</p>
+    <body>
+      <div class="card">
+        <h1>${escapeHtml(title)}</h1>
+        <p class="message">${escapeHtml(message)}</p>
         ${detailsHtml}
-        <div class="flex gap-3">
-          <a href="${origin}" class="flex-1 bg-zinc-100 text-zinc-950 font-semibold py-3 rounded-xl text-center">Return Home</a>
-          <a href="${origin}/api/auth/github" class="flex-1 bg-zinc-800 text-zinc-100 font-semibold py-3 rounded-xl text-center border border-zinc-700">Try Again</a>
+        <div class="actions">
+          <a class="primary" href="/">Return Home</a>
+          <a class="secondary" href="/api/auth/github">Try Again</a>
         </div>
       </div>
     </body>
@@ -1134,8 +1245,6 @@ app.get("/auth/github", rateLimit({ windowMs: 5 * 60 * 1000, max: 20 }), async (
   const clientId = process.env.GITHUB_CLIENT_ID;
   if (!clientId) return authError(c, "Configuration Missing", "GitHub Client ID is not configured.");
 
-  const origin = getOrigin(c);
-  const redirectUri = `${origin}/api/auth/github/callback`;
   const state = generateRandomString(32);
   const scope = requestedScope(c.req.query("scope"));
   const returnTo = safeReturnPath(c.req.query("return"));
@@ -1175,18 +1284,46 @@ app.get("/auth/github", rateLimit({ windowMs: 5 * 60 * 1000, max: 20 }), async (
   setCookie(c, "oauth_state", state, { path: "/", httpOnly: true, secure: true, sameSite: "Lax", maxAge: 600 });
   setCookie(c, "oauth_return", returnTo, { path: "/", httpOnly: true, secure: true, sameSite: "Lax", maxAge: 600 });
 
+  // Checked here rather than at the top of the handler, because this is the
+  // first line that actually needs an origin. Checking earlier would turn the
+  // proof-of-work interstitial — a documented 200 that has nothing to do with
+  // the origin — into a 400 on any deployment that had not set `APP_URL`.
+  const origin = configuredOrigin();
+  if (!origin) return authError(c, "Configuration Missing", ORIGIN_UNCONFIGURED);
+  const redirectUri = `${origin}/api/auth/github/callback`;
+
   const authorizeUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${state}`;
 
+  /*
+   * The interstitial navigates top-level, unconditionally.
+   *
+   * It used to branch on whether it was framed, and in the framed case posted
+   * the authorize URL to the parent window with target origin "*" instead of
+   * navigating — an `OPEN_EXTERNAL_URL` message for a preview tool's parent
+   * frame. Nothing in this product ever listened for it; the tool is not part of
+   * this product. The branch is deleted rather than narrowed, for two reasons.
+   *
+   * The URL carries `state` — the login-CSRF token this same response has just
+   * set as the `oauth_state` cookie — so the framed case handed the token to any
+   * document that framed the page. And the frame check was not a guard around
+   * that, it was the condition that selected it: the leak fired only when framed,
+   * which is the one circumstance an attacker arranges and no ordinary use
+   * produces.
+   *
+   * A sign-in page has no business inside somebody else's document, so the
+   * premise is now denied outright rather than handled: `frameGuard` sends
+   * `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'` on every response
+   * this router serves, and `headers()` in next.config.ts does the same for the
+   * pages. Note the comment must stay out here in TypeScript rather than inside
+   * the template below — anything written in there is served to the reader, and
+   * naming the old API in the shipped HTML would be both noise and a false hit
+   * for anyone grepping the deployed page for it.
+   */
   return c.html(`
     <!DOCTYPE html><html><head><title>Redirecting...</title></head><body style="background:#09090b;color:white;display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui;">
       <div style="text-align:center;"><p>Connecting to GitHub...</p></div>
       <script>
-        const url = "${authorizeUrl}";
-        if (window.self !== window.top) {
-          window.parent.postMessage({ type: "OPEN_EXTERNAL_URL", data: { url } }, "*");
-        } else {
-          window.location.href = url;
-        }
+        window.location.href = "${authorizeUrl}";
       </script>
     </body></html>
   `);
@@ -1202,7 +1339,8 @@ app.get("/auth/github/callback", rateLimit({ windowMs: 5 * 60 * 1000, max: 10 })
 
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
-  const origin = getOrigin(c);
+  const origin = configuredOrigin();
+  if (!origin) return authError(c, "Configuration Missing", ORIGIN_UNCONFIGURED);
   const redirectUri = `${origin}/api/auth/github/callback`;
 
   try {
@@ -1270,15 +1408,17 @@ app.get("/auth/github/callback", rateLimit({ windowMs: 5 * 60 * 1000, max: 10 })
       });
     } catch { }
 
-    const domain = origin.replace("https://", "").split(":")[0];
-
+    // No `domain`, deliberately: the cookie is host-only, scoped to exactly the
+    // host that set it and sent to no subdomain. A `domain` attribute used to be
+    // set for one vendor's preview hosts and left `undefined` everywhere else;
+    // host-only was already what every real deployment got, and it is the
+    // tighter scope, so it is now unconditional.
     setCookie(c, "auth_token", sessionToken, {
       path: "/",
       httpOnly: true,
       secure: true,
       sameSite: "Lax",
       maxAge: 30 * 24 * 60 * 60,
-      domain: domain.includes("orchids.page") ? domain : undefined
     });
 
     // Re-validated rather than trusted: the cookie is httpOnly and set by this
@@ -1287,7 +1427,10 @@ app.get("/auth/github/callback", rateLimit({ windowMs: 5 * 60 * 1000, max: 10 })
     const returnTo = safeReturnPath(getCookie(c, "oauth_return"));
     setCookie(c, "oauth_return", "", { path: "/", maxAge: 0 });
 
-    return c.redirect(`${origin}${returnTo}`);
+    // Site-relative. `safeReturnPath` guarantees a path beginning with a single
+    // `/`, so this lands on this deployment whatever host it answers on, without
+    // an origin having to be known or guessed.
+    return c.redirect(returnTo);
   } catch (err: any) {
     console.error("[AUTH] Fatal Error:", err);
     return authError(c, "Server Error", "An unexpected error occurred.");
@@ -1313,11 +1456,31 @@ app.post("/auth/logout", async (c) => {
 // Dashboard (web UI)
 // ---------------------------------------------------------------------------
 
+/** One recorded sign-in, as the counterfoil publishes it. */
+interface DashboardLogin {
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string | null;
+}
+
 /**
  * Everything the publisher's own dashboard renders, in one request.
  *
  * Browser-only, so the payload stays camelCase — the snake_case rule is the CLI
  * contract (§3.1) and this is not part of it.
+ *
+ * **Every section is built from named fields.** Not one of the four returns a
+ * Drizzle row, and none of the three queries reads a column the page does not
+ * render (`dashboardUserColumns` and `dashboardPackageColumns` in
+ * `@/lib/registry/queries`). This was not always true, and what it cost is worth
+ * recording: spreading a `packages` row published `downloads` and `stars` on
+ * every entry — two columns nothing in this codebase increments — so a publisher
+ * was shown a permanently-zero figure about their own package as though the
+ * registry had counted something (ADR-0001, and the same decision as §3.5's
+ * refusal to sort by either). `tests/api/dashboard.test.ts` pins each section's
+ * keys exactly, so a column added to any of these tables cannot arrive on the
+ * wire without somebody choosing it.
  *
  * Deliberately absent:
  *
@@ -1346,10 +1509,17 @@ app.get("/dashboard/data", async (c) => {
 
   try {
     const currentDb = getDb(c.env);
-    const user = await currentDb.select().from(users).where(eq(users.id, auth.id)).get();
+    const user = await currentDb
+      .select(dashboardUserColumns)
+      .from(users)
+      .where(eq(users.id, auth.id))
+      .get();
     if (!user) return notFound(c, "This account no longer exists.");
 
-    const userPackages = await currentDb.select().from(packages).where(eq(packages.ownerId, auth.id));
+    const userPackages = await currentDb
+      .select(dashboardPackageColumns)
+      .from(packages)
+      .where(eq(packages.ownerId, auth.id));
 
     // One query for the whole page of packages, not one per package: an N+1 here
     // is a round trip per name against a 10 ms CPU budget (§3.8).
@@ -1368,9 +1538,18 @@ app.get("/dashboard/data", async (c) => {
     const dashboardPackages = userPackages.map((pkg) => {
       const own = versionRows.filter((row) => row.packageId === pkg.id);
       return {
-        ...pkg,
+        // Named one by one rather than spread. A `{ ...pkg }` published every
+        // column on the row, which is how `downloads` and `stars` — two figures
+        // nothing in this codebase increments — came to be reported to a
+        // publisher about their own package as if they were measurements
+        // (ADR-0001, §3.5). The same spread also carried `ownerId`,
+        // `organizationId` and the `category` default nobody has ever chosen.
+        id: pkg.id,
+        name: pkg.name,
+        description: pkg.description,
+        isTrusted: pkg.isTrusted,
+        isDeprecated: pkg.isDeprecated,
         createdAt: isoOrNull(pkg.createdAt),
-        updatedAt: isoOrNull(pkg.updatedAt),
         // Derived by exactly the same rule as §3.2's `latest_version`, yanked
         // records excluded, so a publisher's dashboard and their public package
         // page can never disagree about what the latest version is. `null` means
@@ -1385,9 +1564,22 @@ app.get("/dashboard/data", async (c) => {
       };
     });
 
-    let userLogins: { createdAt: string | null }[] = [];
+    // Named, for the same reason as the entries above: a sign-in row carries the
+    // account's own `userId`, which the page has no use for and which nothing
+    // outside the database has any reason to see.
+    let userLogins: DashboardLogin[] = [];
     try {
-      const rows = await currentDb.select().from(logins).where(eq(logins.userId, auth.id)).orderBy(desc(logins.createdAt)).limit(10);
+      const rows = await currentDb
+        .select({
+          id: logins.id,
+          ipAddress: logins.ipAddress,
+          userAgent: logins.userAgent,
+          createdAt: logins.createdAt,
+        })
+        .from(logins)
+        .where(eq(logins.userId, auth.id))
+        .orderBy(desc(logins.createdAt))
+        .limit(10);
       userLogins = rows.map((row) => ({ ...row, createdAt: isoOrNull(row.createdAt) }));
     } catch (e) {
       console.error("[DASHBOARD] Logins fetch error:", e);
@@ -1428,6 +1620,12 @@ app.get("/dashboard/data", async (c) => {
       : { status: "none" as const, requestedAt: null, reviewedAt: null, reviewerNote: null };
 
     return c.json({
+      // The spread here is of `dashboardUserColumns`, not of a `users` row — the
+      // named list is in `@/lib/registry/queries`, one file with every "which
+      // columns does this reader need" answer in it. Spreading a *row* is what
+      // this handler used to do, and what put `downloads` and `stars` on every
+      // entry above; a column added to `users` cannot arrive here without being
+      // added to that list first.
       user: { ...user, createdAt: isoOrNull(user.createdAt) },
       packages: dashboardPackages,
       logins: userLogins,

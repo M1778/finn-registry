@@ -30,6 +30,7 @@ in one of them worth reporting.
 9. [Rate limits](#9-rate-limits)
 10. [What does not exist yet](#10-what-does-not-exist-yet)
 11. [Verifying against a running instance](#11-verifying-against-a-running-instance)
+12. [Registry discovery and the offline fallback index](#12-registry-discovery-and-the-offline-fallback-index)
 
 ---
 
@@ -42,7 +43,7 @@ rewrite a single byte of anyone's code.
 ```
      finn (CLI)                 finn-registry                 GitHub
          │                            │                          │
-         │  GET /api/packages/left-pad│                          │
+         │  GET /api/packages/http    │                          │
          ├───────────────────────────► │                          │
          │  { repo_url, trust, … }    │                          │
          │ ◄───────────────────────────┤                          │
@@ -92,12 +93,12 @@ The full record, returned by `GET /api/packages/:name`.
 
 ```json
 {
-  "name": "left-pad",
-  "description": "Pads a string on the left.",
-  "repo_url": "https://github.com/acme/left-pad",
+  "name": "http",
+  "description": "An HTTP client.",
+  "repo_url": "https://github.com/acme/fin-http",
   "homepage": null,
   "license": "MIT",
-  "keywords": ["string", "padding"],
+  "keywords": ["net", "http"],
   "latest_version": "1.4.2",
   "publisher": {
     "login": "acme",
@@ -199,8 +200,8 @@ Deliberately smaller than a full record — it is not a substitute for one.
 
 ```json
 {
-  "name": "left-pad",
-  "description": "Pads a string on the left.",
+  "name": "http",
+  "description": "An HTTP client.",
   "latest_version": "1.4.2",
   "publisher": { "login": "acme", "is_verified": true },
   "trust": { "level": "verified" },
@@ -221,19 +222,35 @@ repository URL and cannot be used to fetch anything.
 
 Every route below is mounted under **`/api`** on the registry host.
 
-> **Unresolved, and it will break your client:** `finn` currently ships
-> `DEFAULT_REGISTRY = "https://finn-registry.pages.dev"`. That is a Cloudflare
-> **Pages** hostname, and this registry deploys as a Cloudflare **Worker**
-> (`@opennextjs/cloudflare` + `wrangler`, ADR-0005). A Pages URL will not serve
-> these routes — every call 404s. The real hostname is not settled yet.
+**There is no stable hostname, and there is not going to be one.** The base URL is
+not a constant to be settled once and compiled in — it is **discovered at run
+time** from a pointer file published in this repository, on the default branch, at
+`registry/v1/url.txt`. [§12](#12-registry-discovery-and-the-offline-fallback-index)
+specifies that file and the fallback index that sits beside it; read it before
+hard-coding anything.
+
+The precedence a client should implement is two-tiered, plus a cache:
+
+| Tier | Source | When it wins |
+|---|---|---|
+| 1 | an explicit override — config file or `FINN_REGISTRY_URL` | always, and it is never overridden by discovery |
+| 2 | the pointer file, fetched over HTTPS from GitHub raw at `HEAD` | no override was given |
+| — | the client's own 24-hour cache of what tier 2 last said | the pointer could not be fetched at all |
+
+> **Do not hard-code a default you cannot verify.** `finn` used to ship
+> `DEFAULT_REGISTRY = "https://finn-registry.pages.dev"` — a Cloudflare **Pages**
+> hostname, where this registry deploys as a Cloudflare **Worker**
+> (`@opennextjs/cloudflare` + `wrangler`, ADR-0005), so it would not have served
+> these routes: every call 404s. That constant is now `None`
+> (`src/discovery.rs`), and a client implementing this spec should keep it that
+> way. A wrong URL compiled into a released binary cannot be corrected remotely,
+> and it is the single most misleading failure this API can hand a user, since "no
+> such host" and "wrong host" both surface as *package not found* for every
+> package. An empty answer is recoverable; a confident wrong one is not.
 >
-> **Do not hard-code a default you cannot verify.** `finn` already reads an
-> override — a constructor argument, else the `FINN_REGISTRY_URL` environment
-> variable, else the baked-in default — so pointing it at a working host is a
-> configuration change today. Keep it that way, and fail with a message that names
-> the URL it tried. A wrong baked-in default produces "package not found" for
-> every package, which is the single most misleading failure this API can hand a
-> user.
+> Whatever tier supplied the URL, **fail with a message that names the URL you
+> tried and which tier it came from.** A transport error is a registry problem and
+> must never be reported as a package not existing ([§8.1](#81-the-distinction-that-matters-most)).
 
 ### 3.2 Authentication
 
@@ -342,6 +359,21 @@ otherwise                                        →  "recognized"
 `level` alone. That is what lets the registry add a fourth signal later without
 changing — or breaking — your client.
 
+### 4.1.1 What `repo_ownership_confirmed` actually asserts
+
+It is `true` on every response, and always will be. A name cannot be claimed
+without proving push access to the repository it points at, so there is no
+registered package for which it is false — and therefore no column behind it.
+Two consequences worth stating rather than leaving a client to discover:
+
+- **It does not distinguish one package from another.** Reading it as a
+  discriminator between packages would be reading information that is not there.
+  This is a second reason to branch on `level` alone.
+- **It is past tense.** The proof is taken once, when the name is claimed, and
+  never retaken. A publisher who later loses push access, or whose repository is
+  deleted or transferred, keeps an entry that still reports `true`. Read it as
+  *ownership was proven when this name was claimed*.
+
 ### 4.2 `recognized` is the floor, not a warning
 
 Everything on the register is at least `recognized`: a name cannot be claimed
@@ -377,12 +409,12 @@ The endpoint `finn add <bare-name>` needs. Returns the [package record](#21-pack
 as the body, no envelope.
 
 ```http
-GET /api/packages/left-pad
+GET /api/packages/http
 ```
 
 `:name` is a **single path segment**. A name is bare and globally unique; a
 slash always means GitHub to `finn` and so can never be a registry name. The
-single-segment route parameter enforces that for free — `GET /api/packages/acme/left-pad`
+single-segment route parameter enforces that for free — `GET /api/packages/acme/http`
 does not match this route and falls through to §3.7's plain-text 404.
 
 | Status | Body | When |
@@ -398,12 +430,12 @@ does not exist" turns a transient failure into a wrong lockfile.
 ### 5.2 `GET /api/packages/:name/versions` — every version record
 
 ```http
-GET /api/packages/left-pad/versions
+GET /api/packages/http/versions
 ```
 
 ```json
 {
-  "name": "left-pad",
+  "name": "http",
   "versions": [
     { "version": "1.4.2", "git_ref": "v1.4.2", "commit": "9f2c1ab…", "checksum": null,
       "checksum_origin": null, "yanked": false, "published_at": "2026-08-12T09:31:04Z" },
@@ -434,7 +466,7 @@ normal state today ([§10](#10-what-does-not-exist-yet)). An empty array is not 
 ### 5.3 `GET /api/packages/:name/versions/:version` — one exact version
 
 ```http
-GET /api/packages/left-pad/versions/1.4.2
+GET /api/packages/http/versions/1.4.2
 ```
 
 Returns a [version record](#23-version-record) **plus `repo_url`**, flattened into
@@ -450,7 +482,7 @@ one request rather than two:
   "checksum_origin": null,
   "yanked": false,
   "published_at": "2026-08-12T09:31:04Z",
-  "repo_url": "https://github.com/acme/left-pad"
+  "repo_url": "https://github.com/acme/fin-http"
 }
 ```
 
@@ -473,7 +505,7 @@ The refusal is a `400` and **not** a `404` on purpose: `finn` maps 404 to
 The two 404s share a code and differ in `message`. If you need to tell them
 apart, call §5.1 — do not pattern-match the prose.
 
-**Syntax is checked before existence.** `GET /api/packages/never-registered/versions/%3E=1.2`
+**Syntax is checked before existence.** `GET /api/packages/unregistered/versions/%3E=1.2`
 returns `400 invalid_version`, *not* `404` — the version string is rejected before
 the package is ever looked up. So a `400` here tells you nothing about whether the
 package exists, and a client that reads `400` as "bad request, package must be
@@ -510,7 +542,7 @@ being avoided.
 ```json
 {
   "total": 41,
-  "items": [ { "name": "left-pad", "description": "…", "latest_version": "1.4.2",
+  "items": [ { "name": "http", "description": "…", "latest_version": "1.4.2",
                "publisher": { "login": "acme", "is_verified": true },
                "trust": { "level": "verified" },
                "is_deprecated": false, "created_at": "2026-08-01T00:00:00Z" } ]
@@ -570,7 +602,7 @@ not lead to building on them.
   "totalPublishers": 12,
   "totalVersions": 0,
   "recentPackages": [
-    { "id": "…", "name": "left-pad", "description": "…", "category": null,
+    { "id": "…", "name": "http", "description": "…", "category": null,
       "isTrusted": false, "isDeprecated": false, "trustLevel": "verified",
       "publisherLogin": "acme", "publisherVerified": true,
       "latestVersion": null, "createdAt": "2026-08-01T00:00:00Z" }
@@ -587,10 +619,10 @@ populates a star count, so both would be fabricated.
 ### 6.2 `GET /api/search/suggestions` — typeahead
 
 ```http
-GET /api/search/suggestions?q=le
+GET /api/search/suggestions?q=ht
 ```
 
-Returns a **bare JSON array of name strings**, at most 5: `["left-pad","lexer"]`.
+Returns a **bare JSON array of name strings**, at most 5: `["http","httpclient"]`.
 
 Not an envelope, not objects. `q` shorter than 2 characters returns `[]`.
 
@@ -612,6 +644,14 @@ GET /api/publishers/acme?limit=100&offset=0
 |---|---|---|
 | `limit` | `100` | clamped to `1…100` |
 | `offset` | `0` | clamped to `≥ 0` |
+
+`items` are ordered **newest registration first, ties broken by `name` ascending**
+— the same total order as [§5.4](#54-get-apipackages--search-and-browse) under
+`sort=recent`. That is a guarantee and not an implementation detail, because this
+endpoint pages: `offset` over an order that leaves ties unresolved repeats a row
+on one page and drops it from another, and two names registered in the same second
+is not a contrived case. A future editor may change the order the profile is
+presented in, but not to one that leaves ties unbroken.
 
 ```json
 {
@@ -681,7 +721,7 @@ described in §7.4, and answer `428` without one.
 ### 7.1 `POST /api/registrations/check` — pre-flight
 
 ```json
-{ "repo_url": "https://github.com/acme/left-pad" }
+{ "repo_url": "https://github.com/acme/fin-http" }
 ```
 
 `repo_url` accepts a full URL or `owner/repo`; max 512 chars.
@@ -715,15 +755,30 @@ client-side shape handles both.
 ### 7.2 `POST /api/packages` — claim a name
 
 ```json
-{ "name": "left-pad", "repo_url": "acme/left-pad",
+{ "name": "http", "repo_url": "acme/fin-http",
   "description": "optional", "homepage": "optional" }
 ```
 
-Name grammar: `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`, 2–64 characters. Lowercase, digits,
-single interior hyphens, must start with a letter, **no slash** — a slash always
-means GitHub, so a name containing one could never be resolved as a bare name.
+Name grammar: `^[a-z][a-z0-9]*$`, 2–64 characters, and not one of Fin's reserved
+words. Lowercase letters and digits, starting with a letter — **no hyphens,
+underscores or dots**, and **no slash**, because a slash always means GitHub and a
+name containing one could never be resolved as a bare name.
+
+The grammar is Fin's identifier grammar, deliberately: `ID` is
+`{ALPHA}({ALPHA}|{DIGIT})*` over `ALPHA [a-zA-Z_]`, so `-` lexes as `MINUS` and
+`import http-client;` would not be a bad-name error — it would read as a
+subtraction of two undeclared names. Every registered name is therefore spellable
+as `import <name>;`. The reserved words are the ones Fin's lexer has today
+(`let`, `type`, `string`, `true`, `as`, …); the list lives in
+`src/lib/package-name.ts`.
+
+A refused name is **refused, not corrected**. `http-client` does not become
+`http_client` or `httpclient`: one package with two spellings is a fact the
+registry would have invented, and the user would be left to reconcile it.
+
 Enforced here, not only in the browser: the form is a convenience, this is the
-rule.
+rule. A **repository** name is unaffected — `acme/fin-http` keeps its hyphen,
+since that string is GitHub's, not the register's.
 
 Push access is re-checked against GitHub here with the signed-in user's token.
 The §7.1 call is a **courtesy to the user, not evidence** — nothing stops a
@@ -744,7 +799,7 @@ is published, and no version record exists.
 |---|---|---|
 | `201` | — | Claimed. Body is a [package record](#21-package-record). |
 | `400` | `invalid_request` | Body was not JSON. |
-| `400` | `invalid_name` | Fails the grammar or the length bounds. |
+| `400` | `invalid_name` | Fails the grammar, the length bounds, or is a Fin reserved word. `message` names the rule that was broken. |
 | `400` | `invalid_repo_url` | Missing, or not a GitHub repository. |
 | `401` | `unauthorized` | Not signed in, or the session no longer matches an account. |
 | `403` | `push_access_denied` | GitHub says you cannot push there. Carries `needs_scope: false`. |
@@ -847,7 +902,7 @@ rate limits rather than replacing either.
 Every documented failure uses one envelope:
 
 ```json
-{ "error": "not_found", "message": "No package named \"left-pad\" is registered." }
+{ "error": "not_found", "message": "No package named \"http\" is registered." }
 ```
 
 - **`error`** is a stable machine-readable code. Branch on this.
@@ -1056,11 +1111,14 @@ parsing a body, so §3.7's plain-text 404 does not break it.
 
 **What needs work, in the order it will bite:**
 
-1. **The base URL default is wrong** — `DEFAULT_REGISTRY` is
-   `https://finn-registry.pages.dev`, a Pages host for a Worker deployment
-   ([§3.1](#31-base-url)). It *is* overridable via a constructor argument or the
-   `FINN_REGISTRY_URL` environment variable, so this is a one-line change once the
-   real hostname exists.
+1. ~~**The base URL default is wrong**~~ — **done, and better than asked for.**
+   `DEFAULT_REGISTRY` used to be `https://finn-registry.pages.dev`, a Pages host
+   for a Worker deployment ([§3.1](#31-base-url)). It is now `None`, and
+   `src/discovery.rs` implements the pointer file and a 24-hour cache instead
+   ([§12](#12-registry-discovery-and-the-offline-fallback-index)), so there is no
+   hostname left to correct and no release needed when ours changes. Overrides
+   still win: `[registry].url` in `finn.toml`, then `$FINN_REGISTRY_URL`. Note
+   there is no `--registry` flag — do not document one.
 2. **Every non-404 failure collapses into one error.** `!status.is_success()`
    becomes `ApiError("Status 500")`, so a `429` and a `500` are indistinguishable
    from a `400`, nothing is retried, and `Retry-After` is ignored. This is the
@@ -1108,7 +1166,7 @@ just typechecked:
 ```
 /api/health                                 -> 200
 /api/packages                               -> 200
-/api/packages/a-name-nobody-has-registered  -> 404
+/api/packages/nosuchpackage                 -> 404
 ```
 
 plus the page routes, and a deliberately D1-less Worker confirming that a missing
@@ -1125,6 +1183,375 @@ regression tests asserting no endpoint invents a `1.0.0`).
 
 If you are building a client, insert a row locally and probe against it. Do not
 assume a shape here is field-for-field right until you have seen it once.
+
+---
+
+## 12. Registry discovery and the offline fallback index
+
+Two files in this repository are read by clients directly, over HTTPS, without
+going through the API at all. They are what makes the registry findable when its
+hostname is unknown, and resolvable when it is unreachable.
+
+| File | Purpose |
+|---|---|
+| `registry/v1/url.txt` | the pointer: names the current registry base URL |
+| `registry/v1/packages.json` | the fallback index: package → repository for the standard library and the first-party libraries |
+
+Both are fetched from the **default branch** of this public repository:
+
+```
+https://raw.githubusercontent.com/M1778/finn-registry/HEAD/registry/v1/url.txt
+https://raw.githubusercontent.com/M1778/finn-registry/HEAD/registry/v1/packages.json
+```
+
+`HEAD` — not `master`, not `main` — is deliberate. It resolves to whatever this
+repository's default branch is called, so renaming the default branch cannot break
+an already-installed binary. The repository is public, so no token, no
+`Authorization` header and no authenticated transport is involved; a plain
+unauthenticated `GET` is the whole protocol.
+
+> **Both URLs 404 right now, and merging is the fix.** `HEAD` resolves to the
+> default branch, and every file described in this section lives on
+> `feat/registry-implementation`. The default branch does not have them. Until that
+> branch merges, discovery gets a 404 at tier 2 and there is nothing behind it: the
+> client's compiled-in default is `None`, deliberately, because a URL baked into a
+> binary that 404s turns "not deployed" into "your package does not exist".
+> Nothing about the files themselves is wrong; they are simply not on the branch
+> that is served. Merging them is worth doing **before** a deployment exists — see
+> [§12.2](#122-registryv1urltxt--the-pointer), which is published as comments only
+> for exactly that reason.
+
+### 12.1 Both paths are permanent API
+
+An installed binary cannot be updated remotely. Whatever path a released `finn`
+was compiled with is the path it will fetch for as long as that copy exists on
+somebody's machine — so these two strings are as much a public interface as any
+route in [§5](#5-endpoints-for-a-package-manager), and they are frozen on the same
+terms.
+
+Three specific choices follow from that, and each is load-bearing:
+
+1. **Under `registry/`, not `docs/`.** These are machine-facing files. Documentation
+   gets reorganised, split, renamed and moved, and a documentation reshuffle must
+   never be able to break package resolution for installed clients. Keeping them
+   out of `docs/` removes the whole class of accident.
+2. **Under `v1/`.** The `schema` field inside `packages.json` versions the *format*
+   of the index — add a field, change a field's meaning, and `schema` goes to `2`.
+   It cannot version the discovery model itself: if the pointer stops being a text
+   file, or the index splits into shards, or discovery moves to a signed manifest,
+   there is no field inside the old file that can express it. `v1/` is that escape
+   hatch. A future model lands at `registry/v2/…` and `registry/v1/…` keeps being
+   published for as long as clients read it.
+3. **`packages.json`, not `index.json`.** The `Fin` project already publishes an
+   `index.json` — the `finc` compiler release index, which carries its own
+   `SCHEMA = 1` that means something completely different. Two files named
+   `index.json`, each with a `schema` field, each versioned independently, is a
+   confusion that costs an afternoon the first time somebody hits it and is free to
+   avoid now.
+
+### 12.2 `registry/v1/url.txt` — the pointer
+
+Plain text, UTF-8, one meaningful line. The format is deliberately the smallest
+thing that can be parsed correctly by a client with no dependencies:
+
+- a line whose first character is `#` is a comment;
+- blank lines are ignored;
+- the **first** non-comment, non-blank line is the registry base URL;
+- that URL must be `https://`, must carry **no trailing slash**, and must carry
+  **no path** — the client appends `/api/...` itself;
+- **nothing after that line is read.** A second URL further down the file is not
+  a second answer.
+
+The file as published today, minus its comment block, is **nothing**. There is no
+URL line, and that is a decision rather than an omission:
+
+```
+(comments only — no URL line)
+```
+
+> **Why an empty answer beats a placeholder.** This file used to end with
+> `https://finn-registry.REPLACE-WITH-ACCOUNT-SUBDOMAIN.workers.dev`, in the same
+> placeholder idiom as `wrangler.jsonc`'s `database_id`. In a JSON config that is
+> harmless, because nothing accepts it. Here it is not, because **it satisfies
+> every rule listed above**: https, a non-empty host, no trailing slash, no path.
+> A client cannot tell it from a real answer. It accepts it, caches it for 24
+> hours, fails to connect, and reports the registry as **unreachable** — when the
+> truth is that the registry has never been **deployed**. A package manager needs
+> different words for those two, and a placeholder that validates destroys the
+> difference.
+>
+> A file of comments has no such problem. `finn` reads it, reports that it
+> *"contains no URL line — every line is blank or a comment"*, finds no cache and
+> no compiled-in default, and says plainly that it knows of no deployment, naming
+> `$FINN_REGISTRY_URL` and finn.toml's `[registry]` table as the way to point it at
+> one. That is the honest failure, and it is immediately useful to somebody running
+> their own registry.
+>
+> It also means this section can merge and be exercised **now** rather than waiting
+> on a deploy. Nothing has been deployed yet: `wrangler.jsonc` still carries
+> `"database_id": "REPLACE_WITH_D1_DATABASE_ID"`, so no D1 database exists, no
+> migration has been applied remotely, and no Worker has been published
+> ([§10.6](#106-nothing-is-deployed)).
+
+**Activating the pointer is one appended line.** A `workers.dev` origin is
+`<worker-name>.<account-subdomain>.workers.dev`, and the account subdomain is
+assigned to the Cloudflare account that first publishes the Worker — it is not
+knowable in advance, which is why nothing is written here now. Whoever deploys
+appends the origin `wrangler` prints, in the same change that publishes the Worker:
+
+```diff
+  # A wrong URL here breaks every user of the language. This is the one line in
+  # this repository that must never be guessed.
++
++ https://finn-registry.<account-subdomain>.workers.dev
+```
+
+Then regenerate the index — `npm run build:fallback-index` — because
+`packages.json`'s `registry_url` is read out of this file and the two must not
+disagree. Nothing else moves: no CI change, no `finn` release, and no second merge,
+since the file is already on the default branch. The two-label form
+`finn-registry.workers.dev` is **not** a shortcut for the unknown subdomain: it
+names an *account* subdomain anybody could register.
+
+**Three guards refuse a placeholder in URL position**, and none of them minds one
+in a comment — the file documents this hazard by name:
+
+| Guard | Where |
+|---|---|
+| `tests/regressions/no-guessed-registry-url.test.ts` | the merge gate: `npm test`, on every push |
+| `scripts/build-fallback-index.mjs` | refuses to generate an index from a placeholder pointer |
+| `scripts/check-fallback-index.mjs` + the `Preflight` step of `.github/workflows/fallback-index.yml` | refuses to publish one, and refuses a pointer and an index that disagree |
+
+
+**The pointer is a trust root, and it is publicly auditable.** Push access to this
+repository redirects package resolution for every `finn` user, which is a real
+security property and worth being explicit about. The mitigation that comes for
+free from this being a public git repository is that **`git log registry/v1/url.txt`
+is a complete, public record of every URL the ecosystem has ever been pointed
+at** — a redirect cannot be issued quietly, and anyone can audit the whole history
+after the fact. That is strictly more than a hostname compiled into a binary can
+offer, where a redirect requires a new release nobody can diff. The rest is
+procedural, and *recommended* rather than configured here: **branch protection and
+signed commits on the default branch.**
+
+### 12.3 `registry/v1/packages.json` — the fallback index
+
+Read when the live API is unreachable. It answers exactly one question — *where
+does this package's code live* — for the standard library and the first-party
+libraries. It is not a mirror of the register.
+
+```json
+{
+  "schema": 1,
+  "registry_url": null,
+  "generated_at": "2026-08-24T06:48:59.467Z",
+  "packages": {}
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `schema` | integer | format version. **`1` today.** Emitted first, and checked first — see [§12.4](#124-schema-is-checked-before-anything-else-is-read) |
+| `registry_url` | string \| null | the same base URL the pointer names, byte for byte. Generated from the pointer, so it cannot drift. **`null` today**, because the pointer names none ([§12.2](#122-registryv1urltxt--the-pointer)) — a client that fetches the index therefore recovers *no* URL from it, which is correct and is not a fetch failure |
+| `generated_at` | string | ISO 8601 UTC, when **these contents** were generated. Informational, not a cache directive — and it moves only when something else in the file moves, see [§12.6](#126-the-ci-job-that-regenerates-it) |
+| `packages` | object | a **name-keyed map**, not an array. The key is the registry name; a client resolving a name does one lookup, not a scan |
+
+Each value in `packages` is:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `repo_url` | string | the git repository. The only field with no useful null case — an entry without it would answer nothing |
+| `latest_version` | string \| null | the highest non-yanked version on record, semver-ordered |
+| `tag` | string \| null | the git ref for that version (`git_ref`) |
+| `commit` | string \| null | the commit that ref pointed at when the version was recorded |
+| `trust` | `"verified"` \| `"trusted"` \| `"recognized"` | the package's trust level, per [§4](#4-trust) |
+| `kind` | `"stdlib"` \| `"library"` | whether the entry is part of the standard library or an ordinary library |
+
+Two rules about the values, both of which a client may rely on:
+
+- **`trust` is read verbatim and is never a guess.** It is derived by the same
+  ladder as the API — `src/lib/trust.ts`, from `users.is_verified` and
+  `packages.is_trusted` — and it is never defaulted to a floor value to fill the
+  field in. Branch on it the same way you branch on the API's `trust.level`, and
+  do not reconstruct it from anything else.
+- **An unknown value is `null`, never a plausible-looking placeholder.** A package
+  with no version records emits `"latest_version": null, "tag": null, "commit": null`.
+  This is the same discipline `tests/regressions/no-fabricated-version.test.ts`
+  enforces on the API, for the same reason: a fabricated `"1.0.0"` is a false claim
+  about somebody else's code, and a client that trusts it checks out a tag that
+  does not exist. Since nothing writes to `versions` yet
+  ([§10.1](#101-there-is-no-write-path-for-version-records--anywhere)), **`null`
+  is the ordinary case today, not an edge case** — handle it first.
+
+`"packages": {}` — an empty map — is a valid index and is what is published today.
+It means *the register holds no first-party package with a recorded version*, which
+is true, and it is not the same as the file being missing. A client that gets an
+empty map falls through to its next resolution step; a client that gets a 404 has a
+discovery failure. Do not collapse the two.
+
+### 12.4 `schema` is checked before anything else is read
+
+`schema` is emitted as the first key in the object, and the guarantee to a client
+is this: **check `schema` before reading any other field, and refuse an unknown
+value rather than guessing.** That is the same rule `finn` already implements for
+the `finc` release index (`INDEX_SCHEMA` in its `src/commands/download.rs`), and the
+reasoning carries over unchanged.
+
+If a client sees a `schema` it does not know:
+
+- **Refuse.** Do not parse the rest optimistically, do not treat missing fields as
+  null, and do not fall back to a heuristic. A format bump exists precisely because
+  a field's meaning changed, and a client that reads a `2` as though it were a `1`
+  produces a confidently wrong answer about where code lives.
+- **Say which side is behind.** A newer `schema` than the client knows means the
+  client is old — tell the user to upgrade. That distinction is the difference
+  between a two-second fix and a bug report.
+
+Correspondingly, this repository will not repurpose a field within a `schema`. If
+the meaning of `latest_version`, `tag`, `commit`, `trust` or `kind` changes, or a
+field becomes required, `schema` goes to `2`.
+
+### 12.5 How the index is generated
+
+The index is **generated from the database, never hand-maintained**:
+
+```bash
+npm run build:fallback-index                          # the default local database
+npm run build:fallback-index -- --db file:export.db   # an explicit one
+npm run build:fallback-index -- --out /tmp/x.json     # somewhere other than the fixed path
+
+# And the guard CI runs before it commits anything, which is worth running by
+# hand on any index you generated somewhere other than the fixed path:
+node scripts/check-fallback-index.mjs --candidate /tmp/x.json
+
+# The guard also reads the pointer, because the one rule the generator cannot
+# enforce is that the two files agree: the generator writes both, so it cannot be
+# the thing that catches itself writing them inconsistently.
+node scripts/check-fallback-index.mjs --candidate /tmp/x.json --pointer registry/v1/url.txt
+```
+
+The script is `scripts/build-fallback-index.mjs`. It reads the same local SQLite
+file the test suite and `npm run db:apply:local` use, and writes
+`registry/v1/packages.json`. It is `.mjs` rather than `.ts` because nothing in this
+repository can execute a TypeScript file — there is no `ts-node` or `tsx` — and it
+imports only `@libsql/client/node` and `semver`, both already dependencies.
+
+It is generated because the alternative is worse: the index duplicates
+package → repository data that already lives in D1, and a hand-edited duplicate
+becomes a second, *wrong* source of truth about where a package's code lives —
+consulted at exactly the moment the client has no other answer to check it
+against.
+
+Three properties of the generator are worth knowing if you read its output:
+
+- **Only first-party packages are included** — those whose `repo_url` is
+  `https://github.com/M1778/<repo>`. That is what the index is for, and it also
+  means a development seed cannot leak into a published index: a local database
+  full of invented packages pointing at repositories that do not exist produces an
+  empty index, not seven wrong answers. The script prints how many rows it
+  excluded, which is the number to check before committing a diff.
+- **Yanked versions are excluded from `latest_version` and from nothing else.** A
+  version stored as something that is not valid semver is skipped and reported,
+  never string-ordered into place.
+- **`registry_url` comes out of the pointer, or comes out `null`.** The generator
+  is the only thing that reads `registry/v1/url.txt`, and it does not invent a URL
+  when the pointer names none — a pointer of comments produces
+  `"registry_url": null`, which is the state published today
+  ([§12.2](#122-registryv1urltxt--the-pointer)). A pointer that names a
+  *placeholder* is a hard failure instead: nothing is written, because a placeholder
+  passes every format rule and would be indistinguishable from a real answer to a
+  client.
+
+**Standard library entries are the exception.** The standard library is not in the
+register — nothing registered it, so there is no row to read and no trust state to
+derive — so those entries are authored, in `scripts/fallback-stdlib.mjs`, and the
+generator merges them. They live in a checked-in source file rather than inline in
+the generator so that adding one is a data change with a reviewable diff, and the
+generator validates them on the same terms as register rows: name rule, first-party
+repository, and refusal on a name that collides with a registered package. An
+authored entry never passed through registration, so that is the only place the
+name rule is ever applied to one — and the rule is **read out of**
+`src/lib/package-name.ts` by both `scripts/build-fallback-index.mjs` and
+`scripts/check-fallback-index.mjs` rather than restated in them, because a
+generator that accepted `http-client` would publish a name the register refuses.
+
+`STDLIB_ENTRIES` is currently **empty, deliberately**. Per `finc`'s own interface
+contract the standard library ships *inside the compiler archive*, at
+`<exe dir>/../lib/std`, and is resolved from disk — `finn` never fetches it, and it
+has no repository of its own to point at. Authoring entries for it would invent a
+distribution model that does not exist and make `finn add` clone the compiler
+repository. The file and its shape exist so that the day the stdlib does become
+separately distributed, the change is one array literal.
+
+### 12.6 The CI job that regenerates it
+
+`.github/workflows/fallback-index.yml` runs the generator against **production
+D1** and commits the result. Its own header carries the reasoning in full; this
+section is what a reader of the *index* needs to know about how the file gets
+there.
+
+**It is currently inert, on purpose.** No `push` trigger, a commented-out
+`schedule`, and a manual dispatch that does not commit unless asked. Three
+conditions have to be met before it can do anything, and its preflight step fails
+on each in one readable line: `master` has to actually carry the generator and the
+pointer, `wrangler.jsonc` has to carry a real `database_id` instead of
+`REPLACE_WITH_D1_DATABASE_ID`, and someone has to watch the first few runs.
+
+**Reading production D1 from CI needs a credential — there is no way around it.**
+D1 has no unauthenticated read path: no public endpoint, and both the REST API and
+`wrangler d1` want `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. It needs no
+*new* secret, though — those are the same two `deploy.yml` already passes to
+`npm run db:apply`, and a token that can apply a migration can read the database.
+The credential-free alternative was considered and rejected: deriving the index
+from `GET /api/packages` would derive the fallback from the service the fallback
+exists to survive, so an outage would produce no index and a serializer bug would
+produce a confidently wrong one.
+
+The pipeline, and where each stage can stop:
+
+| Stage | Refuses when |
+|---|---|
+| preflight | the ref lacks the generator or pointer, the pointer names a **placeholder in URL position**, `database_id` is still a placeholder, `sqlite3` is missing |
+| `wrangler d1 export --remote` | the export fails or writes an empty file |
+| load into a SQLite snapshot | the dump is cut mid-statement, or a table the generator reads is absent |
+| `npm run build:fallback-index` | the pointer file is malformed **or names a placeholder**, a register name is invalid, an authored entry collides |
+| `node scripts/check-fallback-index.mjs` | the candidate is malformed, carries a third-party repository, claims a version with no tag or commit behind it, has **lost a name**, has **repointed one**, carries a placeholder `registry_url`, or **disagrees with the pointer** |
+| commit | never reached unless every stage above passed *and* the contents changed |
+
+Two properties are worth calling out because they are what make an unattended job
+safe to point at this file:
+
+- **The candidate is generated out of the working tree** and copied over
+  `registry/v1/packages.json` only after the guard passes. A bad index therefore
+  never exists at the published path, not even briefly.
+- **The guard is comparative, not just structural.** A truncated database read
+  produces a *well-formed* index describing a smaller register — it parses, the
+  schema is right, and the diff looks like an ordinary removal. So the guard
+  refuses any run where a name disappeared or a `repo_url` moved. Both are safe to
+  treat as errors because nothing in the register can do either: there is no
+  `DELETE` route, and no route rewrites `packages.repo_url`.
+
+**A timestamp-only diff is not committed.** Entries are sorted for byte-stable
+output, so a run against an unchanged register differs from the committed file in
+`generated_at` and nothing else. The guard compares the two with `generated_at`
+removed and the commit is skipped. Two reasons:
+
+- **`git log registry/v1/` is a security property, not a changelog.** This
+  repository is the trust root for package resolution
+  ([§12.2](#122-registryv1urltxt--the-pointer)), and its being a *complete and
+  meaningful* record of every change to what clients read is worth more than a
+  fresh timestamp. Every commit to these paths should mean the answer changed.
+- **The client says the field is not a cache directive, in writing.** `finn`
+  deserializes `generated_at` into a field it marks dead, with the note that it is
+  "the only field that moves when nothing else has, so treating a change in it as
+  invalidation would re-download an unchanged index forever". Committing that
+  change daily is the write-side of the same mistake.
+
+The cost, stated rather than hidden: a stale `generated_at` no longer
+distinguishes "the register has not changed" from "the job has been broken for a
+month". The run history is what covers that — a green run that committed nothing
+is the liveness evidence, and the job writes the entry counts to its step summary
+on every run, including refusals.
 
 ---
 

@@ -37,16 +37,16 @@ const READ_ENDPOINTS = [
   "/api/health",
   "/api/stats",
   "/api/search/suggestions?q=h",
-  "/api/search/suggestions?q=with-releases",
+  "/api/search/suggestions?q=released",
   "/api/packages",
   "/api/packages?sort=name",
-  "/api/packages?q=no-releases",
-  "/api/packages/no-releases",
-  "/api/packages/no-releases/versions",
-  "/api/packages/with-releases",
-  "/api/packages/with-releases/versions",
-  "/api/packages/with-releases/versions/2.3.4",
-  "/api/packages/never-registered",
+  "/api/packages?q=unreleased",
+  "/api/packages/unreleased",
+  "/api/packages/unreleased/versions",
+  "/api/packages/released",
+  "/api/packages/released/versions",
+  "/api/packages/released/versions/2.3.4",
+  "/api/packages/unregistered",
   "/api/publishers/acme",
   "/api/publishers/nobody",
   "/api/auth/status",
@@ -59,13 +59,18 @@ const SESSION_ENDPOINTS = ["/api/dashboard/data", "/api/me/settings"];
  * Two packages: one with no releases at all (the case that used to be filled in
  * with a fabricated version) and one whose only release is deliberately not
  * `1.0.0`, so a hardcoded default cannot hide behind a real value.
+ *
+ * Named `unreleased` and `released` rather than `no-releases` and
+ * `with-releases`: as of 2026-08-24 a package name is `^[a-z][a-z0-9]*$`, so the
+ * hyphenated pair could not be registered and a fixture that used them would be
+ * asserting against data the register would refuse.
  */
 async function seedWithoutThatVersion(): Promise<SeededSession> {
   const publisher = await seedPublisher({ login: "acme", is_verified: true });
 
-  await seedPackage({ name: "no-releases", publisher, versions: [] });
+  await seedPackage({ name: "unreleased", publisher, versions: [] });
   await seedPackage({
-    name: "with-releases",
+    name: "released",
     publisher,
     versions: [{ version: "2.3.4" }, { version: "0.2.0" }],
   });
@@ -95,16 +100,16 @@ describe("no endpoint invents version 1.0.0", () => {
   it("says nothing about versions for a package that has none", async () => {
     await seedWithoutThatVersion();
 
-    const record = await apiGet("/api/packages/no-releases");
+    const record = await apiGet("/api/packages/unreleased");
     expect(record.body.latest_version).toBeNull();
 
-    const versions = await apiGet("/api/packages/no-releases/versions");
+    const versions = await apiGet("/api/packages/unreleased/versions");
     expect(versions.body.versions).toEqual([]);
 
     // The one place `1.0.0` may legitimately appear in a response about a
     // package that has no such version: quoted back inside a 404. What must not
     // appear is anything resembling a resolved record.
-    const resolve = await apiGet("/api/packages/no-releases/versions/1.0.0");
+    const resolve = await apiGet("/api/packages/unreleased/versions/1.0.0");
     expect(resolve.status).toBe(404);
     expect(resolve.body.version).toBeUndefined();
     expect(resolve.body.git_ref).toBeUndefined();

@@ -1,0 +1,135 @@
+# The Finn Registry base URL.
+#
+# This file is the pointer. The registry has no stable hostname and is not
+# expected to get one, so the current URL is published here rather than compiled
+# into `finn`. That decouples a registry deploy from a finn release: we can move
+# hosts without shipping a new CLI, and a CLI can ship before we have ever
+# deployed.
+#
+# `finn` fetches this file at
+#
+#     https://raw.githubusercontent.com/M1778/finn-registry/HEAD/registry/v1/url.txt
+#
+# `HEAD` resolves to this repository's default branch, so renaming the branch
+# does not break every installed finn. It is the *last* source of a URL, not one
+# of several: `[registry].url` in finn.toml or $FINN_REGISTRY_URL wins over this
+# file, and behind it there is nothing. The client's compiled-in default is `None`
+# on purpose — a URL baked into a binary that 404s is worse than no URL at all,
+# because it turns "not deployed" into "your package does not exist". The only
+# thing behind this file is finn's own 24-hour cache of the last URL this file
+# gave it.
+#
+# The path is machine-facing API, not documentation. It lives under `registry/`
+# rather than `docs/` because installed binaries cannot be updated remotely and a
+# documentation reshuffle must never be able to break them, and under `v1/`
+# because the `schema:` field in `packages.json` can carry a format change but
+# only a new path can carry a change to the discovery model itself. `v1/` is
+# therefore permanent: old binaries go on reading it forever.
+#
+# FORMAT, exactly as the client implements it:
+#
+#   - a line whose first character is `#` is a comment;
+#   - blank lines are ignored;
+#   - the first non-comment, non-blank line is the registry base URL;
+#   - that URL must be `https://`, must carry no trailing slash, and must carry
+#     no path — the client appends `/api/...` itself;
+#   - nothing after that line is read, so a second URL further down the file is
+#     not a second answer. Change the first one.
+#
+# This file redirects package resolution for every finn user, which makes push
+# access to this repository security-critical. The one mitigation that comes for
+# free is that the repository is public: `git log registry/v1/url.txt` is a
+# complete, public record of every URL the ecosystem has ever been pointed at, so
+# a redirect cannot be made quietly. Branch protection and signed commits on the
+# default branch are the rest of it, and they are procedural.
+#
+# ---------------------------------------------------------------------------
+# THERE IS DELIBERATELY NO URL LINE BELOW. Do not add one as a guess.
+# ---------------------------------------------------------------------------
+#
+# Nothing has been deployed. `wrangler.jsonc` still carries
+# "database_id": "REPLACE_WITH_D1_DATABASE_ID" — no D1 database has been
+# created, no migration has been applied remotely, and no Worker has been
+# published. There is therefore no URL to publish, and this file publishes none.
+#
+# WHY NOT A PLACEHOLDER. This file used to end with
+# `https://finn-registry.REPLACE-WITH-ACCOUNT-SUBDOMAIN.workers.dev`, which is a
+# worse failure than no line at all, because it *passes* every rule listed above:
+# https, a non-empty host, no trailing slash, no path. A client cannot tell it
+# from a real answer. It accepts it, caches it for 24 hours, fails to connect,
+# and reports the registry as **unreachable** — when the truth is that the
+# registry has never been **deployed**. Those two need different words, and a
+# placeholder that validates destroys the difference.
+#
+# A file of comments has no such problem. `finn` reads it, finds no URL line,
+# reports that it contains none, finds no cache and no compiled-in default, and
+# says plainly that it knows of no deployment — naming $FINN_REGISTRY_URL and
+# finn.toml's `[registry]` table as the way to point it at one. That is the
+# honest failure, and it is available to a user who is running their own registry
+# today.
+#
+# The account subdomain also cannot be guessed, which is why the placeholder
+# existed: a workers.dev hostname is
+# `<worker-name>.<account-subdomain>.workers.dev`, and the account subdomain is
+# assigned to the Cloudflare account that first publishes the Worker. The
+# two-label form `finn-registry.workers.dev` is not a shortcut for it — that
+# names an *account* subdomain anybody could register, which is not a thing to
+# publish in a file that redirects package resolution for every user.
+#
+# HOW TO ACTIVATE IT. Two things have to be true, and only one of them is about
+# this line.
+#
+# First, THIS FILE HAS TO BE ON THE DEFAULT BRANCH, and today it is not in the
+# repository at all — not on the default branch, not on the feature branch, not in
+# any commit. It is an untracked working-tree file on one machine. `git ls-tree -r
+# feat/registry-implementation` matches nothing under `registry/`, `git status`
+# reports the whole directory as `?? registry/`, and `git check-ignore` confirms
+# nothing is excluding it: it was simply never added. Separately, that branch has
+# never been pushed either — `git ls-remote --heads origin` returns a single ref,
+# `refs/heads/master`, still at the commit that preceded the implementation.
+# Verified 2026-08-25; both `.../HEAD/registry/v1/url.txt` and the same path on the
+# feature branch answer HTTP 404.
+#
+# Those are two separate omissions and the second one hides the first. "Push the
+# branch" is the obvious reading of a 404 on an unpushed branch, and here it would
+# not have helped: the push would have succeeded, the merge would have succeeded,
+# and this file still would not have been there. It has to be committed first. An
+# earlier version of this paragraph named only the unpushed branch, which was true
+# and would still have sent a deployer down the wrong path.
+#
+# What that costs is worth stating precisely, because it is less than it looks and
+# in one respect more. `finn`'s behaviour is already correct: run against today's
+# 404 it prints "No registry address is known", names the pointer it tried, names
+# `$FINN_REGISTRY_URL` and `finn.toml`'s `[registry]` table, and refuses to claim
+# the package does not exist. Verified against the real binary and the live URL on
+# 2026-08-25. The difference between a missing file and a file with no URL line is
+# only the reason clause it quotes, so no user is misled either way.
+#
+# The real cost is the other file. `registry/v1/packages.json` is untracked in
+# exactly the same way, so it answers 404 too, and finn reports that it "could not be
+# read either" — meaning that today there is no registry *and* no degraded path
+# behind it. The static fallback index is the whole point of tier 3, and it is
+# unreachable for as long as neither file is committed.
+#
+# Two corrections are recorded rather than quietly swapped in, because this is the
+# one file that must not carry a wrong claim. It first said the file was already on
+# the default branch and that no second merge was involved. Corrected, it said the
+# file existed on an unpushed branch — also wrong, and wrong in the direction that
+# looks right, since the fix it implied would not have worked. It is in no commit at
+# all.
+#
+# Second, whoever deploys appends one line — the origin wrangler prints, with no
+# trailing slash and no path — in the same change that publishes the Worker. Then
+# regenerate `packages.json` (`npm run build:fallback-index`), which reads its
+# `registry_url` from this file so the two cannot disagree.
+#
+# The order of those two — the URL line and the regenerated index — does not
+# matter, but both come after the files exist in a commit, and the merge is not a
+# formality: a URL line in a file nobody has added, on a branch nobody fetches, is
+# not a published pointer. No CI change and no finn release is involved, which is
+# the part the old text got right.
+#
+# A wrong URL here breaks every user of the language. This is the one line in
+# this repository that must never be guessed, and `tests/regressions/
+# no-guessed-registry-url.test.ts` refuses a placeholder in URL position so that
+# one cannot arrive by copy-paste.

@@ -23,8 +23,8 @@ why the flow lives in the browser. If you came here looking for `finn publish`,
    human reviews this, and no exception is possible — a name claim without push
    access would make the entire register meaningless.
 3. **Choose the name.** Bare and global: `http`, not `acme/http`. Lowercase
-   letters, digits and single hyphens, starting with a letter, 2–64 characters.
-   First claim wins.
+   letters and digits, starting with a letter, 2–64 characters, and not one of
+   Fin's reserved words. First claim wins.
 4. **Read the entry, then sign it.** The form shows you the exact record that
    will go on the register before it goes there.
 
@@ -47,6 +47,33 @@ A Fin package repository is conventionally called `fin-<name>`, so
 `acme/fin-http` registers as `http`. That is a convention for humans; the
 registry stores whatever bare name you claimed and never derives one from the
 repository name.
+
+## Why the name rule is that narrow
+
+Every registered name has to be spellable as a Fin identifier, so that
+`import <name>;` works for the package you just installed.
+
+```text
+http           httpclient     lexer2      ✓
+http-client    http_client    HttpClient  ✗   only letters and digits
+type           let            string      ✗   reserved words in Fin
+```
+
+A hyphen is not a naming preference. Fin's lexer reads `-` as subtraction, so
+`import http-client;` is not a bad-name error — it compiles as far as complaining
+about two variables nobody declared, which is a confusing thing to hand somebody
+who just ran `finn add`. Reserved words fail the same way: nothing can be named
+`let` and then imported.
+
+<Callout>
+  The register **refuses** a name outside the rule rather than rewriting it. Two
+  spellings for one package is worse than one rename, and a rename is free right
+  up until the moment you claim the name — after that the name is permanent and
+  other people's `finn.toml` files refer to it.
+</Callout>
+
+A repository is not affected: `acme/fin-http` keeps its hyphen, and a dependency
+written as a GitHub path keeps whatever name the repository has.
 
 ## After you register
 

@@ -2,7 +2,7 @@
 
 **Audience**: whoever works on `finn`, the package manager (separate repository).
 **Status**: decisions below are settled unless a section says OPEN.
-**Written**: 2026-08-22. **Revised**: 2026-08-23 (rev 5).
+**Written**: 2026-08-22. **Revised**: 2026-08-25 (rev 8).
 
 Read the first section before the endpoints. The endpoints only make sense once the
 distribution model is clear, and the model is not the one the registry's own published docs
@@ -17,6 +17,69 @@ simply out of date.
 ---
 
 ## 0. What changed
+
+### Since rev 6
+
+**One decision changed, and it is one you have code for.** Rev 6 stated the name rule as
+`^[a-z][a-z0-9]*(-[a-z0-9]+)*$` and §2.10 explained at length why such a name is not always
+spellable in Fin source. The owner read that finding and took the other branch: **the rule is now
+`^[a-z][a-z0-9]*$`, length 2–64, plus Fin's reserved words, refused at registration.** §2.10 is
+rewritten to record the decision and keeps the evidence that produced it.
+
+- **Hyphens, underscores and dots are gone from registry names.** `httpclient` is a name;
+  `http-client` is a `400 invalid_name`. Refused, not normalised — the register will not map
+  `http-client` to `httpclient` and hand back a name nobody typed.
+- **Fin's keywords are refused too**, so `let`, `type`, `string` and the rest can never be claimed.
+  The list is derived from `Fin/src/lexer/lexer.l` and lives in
+  `src/lib/package-name.ts`; it is today's keywords only, and §2.10 says why not tomorrow's.
+- **Every registry name is now a Fin identifier by construction**, so `import <name>;` works for
+  every package on the register. That retires the per-name import decision rev 6 asked you to make
+  — for *registry* names.
+- **It does not retire `finname.rs`.** A GitHub-shorthand dependency is not a registry name and
+  keeps its hyphen — `acme/fin-http` is still a legal thing to depend on — so `import_advice` is
+  still the right call at `add.rs:76` and `sync.rs:61`. What changed is that it can no longer fire
+  for a registry-resolved name.
+- **Nothing migrates.** The register holds no registrations, so there is no existing name this
+  invalidates. See §6.
+- **The list is 58 words, and your `FIN_KEYWORDS` is 57.** The difference is `m1778`, in that
+  direction only — diffed both ways. Adjudicated on the planning side rather than settled inside
+  either implementation: the lexer is authoritative, `m1778` is genuinely reserved there
+  (`lexer.l:209` → `KW_M1778`, a parser production, an `ASTTokenKind`, a codegen arm), and the
+  register keeps it. **Your list is a strict subset and the gap is a ticket, not a request** —
+  omitting `m1778` from `FIN_KEYWORDS` costs one warning nobody printed, whereas omitting it here
+  would have let somebody claim a keyword. **And a warning for whoever tightens `finn` next:**
+  `Fin/src/diagnostics/DiagnosticEngine.cpp` looks like the keyword list you want and is not one —
+  it is diagnostics-only and names eight words the lexer does not reserve (`bez`, `beton`,
+  `elseif`, `self`, `short`, `uint`, `ulong`, `ushort`). Derive from the lexer. §2.10 has the
+  detail.
+
+### Since rev 5
+
+**Three of your asks are answered here, and none of them changes a payload.** Asks 3, 7 and 9
+needed a document rather than an endpoint; they are now §2.9, §2.10 and §2.11. Two of the three
+say yes and stop; the third comes back with a finding.
+
+- **§2.9 answers ask 3 — trust is package-level, and that is a guarantee, not an accident.**
+  `versions` has no trust column and will not grow one. A version inherits its package's level, so
+  a level read from `GET /api/packages/:name` is the level for every version of it. You called this
+  *"the only open question that changes my control flow rather than my structs"*; the control flow
+  is one resolve, cached per package, no per-version trust fetch.
+- **§2.10 answers ask 7 — the rule is `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`, length 2–64, and it is
+  *not* safe as a bare Fin identifier.** That is the finding, and it is a real one: you asked the
+  right question. A hyphenated name cannot be written as `import http-client;` at all, and about
+  thirty otherwise-legal registry names collide with Fin keywords. One import form does work for
+  every legal name, and §2.10 says which and why. **This constrains what `finn` writes on disk and
+  what it can tell a user to type.** Nothing about the registry changes.
+  *Superseded in rev 7: the finding was accepted and the rule was narrowed instead, so a registry
+  name now always is safe as a bare Fin identifier. The analysis is still in §2.10 as the evidence.*
+- **§2.11 answers ask 9 — a published version record is immutable, permanently.** Your argument is
+  the one that settles it: ***"`finn.lock` is meaningless without it."*** §2.11 also says what
+  happens when a publisher moves a tag, which is the case the guarantee is actually about.
+- **§3's base-URL premise is replaced.** Rev 5 said the hostname was not settled and that we would
+  send you the final one. There is no hostname to send: the registry base URL is now **discovered
+  at run time** from a pointer file this repository publishes on its default branch. §3 carries the
+  precedence, `REGISTRY-API.md` §12 carries the file formats, and `Sync.md` §3.1 carries the
+  design. §5.7 changes from a literal to correct into a tier to implement.
 
 ### Since rev 4
 
@@ -180,17 +243,33 @@ new disambiguating prefix for GitHub shorthand (e.g. `gh:acme/http`). That is no
 against an unwritten rule:
 
 ```
-^[a-z][a-z0-9]*(-[a-z0-9]+)*$      length 2–64
+^[a-z][a-z0-9]*$      length 2–64, and not a Fin reserved word
 ```
 
-Lowercase only, digits allowed, single hyphens between segments, must start with a letter. No
-underscores, no dots, no leading/trailing/doubled hyphens, no uppercase — so a name is never two
-names that differ only by case or separator, and it is always safe as a directory name, a URL
-segment, and a TOML bare key.
+Lowercase ASCII letters and digits, starting with a letter. **No hyphens, no underscores, no dots**,
+no uppercase — so a name is never two names that differ only by case or separator, and it is always
+safe as a directory name, a URL segment and a TOML bare key. Narrowed in rev 7; the rule up to rev
+6 allowed single interior hyphens.
 
-The registry enforces this at registration. Please apply the same rule in the CLI when parsing
-`finn add <input>`: anything that fails it and contains no slash is a malformed name, which you
-can reject locally without a network round trip. (A slash still means GitHub, always.)
+**It is a bare Fin identifier, and that is now the point of the rule.** Fin's `ID` is
+`{ALPHA}({ALPHA}|{DIGIT})*` over `ALPHA [a-zA-Z_]`, so this grammar is a strict subset of it, and
+the reserved-word list closes the remaining gap. `import <name>;` therefore compiles for every name
+the register can issue. §2.10 has the evidence, the keyword list and the arguments that were
+weighed.
+
+The registry enforces this at registration (`validatePackageName` in `src/lib/package-name.ts`,
+called from `src/app/api/[[...route]]/router.ts`). Please apply the same rule in the CLI when
+parsing `finn add <input>`: anything that fails it and contains no slash is a malformed name, which
+you can reject locally without a network round trip. (A slash still means GitHub, always.) Two
+cautions if you do:
+
+- **Your copy of the keyword list can only ever be advisory.** It is a copy of a third project's
+  grammar and can fall out of date, and the failure modes are not symmetric: a name your list
+  misses is a warning you did not print, whereas an install you refuse for a name the register
+  issued is a package the user cannot have. Keep `FIN_KEYWORDS` warning-only. The registry's copy
+  decides, because the registry's copy is the one that has to say no while a rename is still free.
+- **Do not apply it to GitHub shorthand.** `acme/fin-http` contains a slash and a hyphen and is a
+  perfectly good dependency; the name rule is about names the register issues, nothing else.
 
 By convention a Fin package repository is named `fin-<name>` — `acme/fin-http` registers as
 `http`. That is a convention for humans, not a rule: the registry stores whatever bare name was
@@ -242,10 +321,15 @@ change.
 
 ### 2.5 The CLI asks the user rather than refusing
 
-Today `finn/src/commands/install.rs:15` hard-fails on anything with `is_official: false` unless
-`--ignore-regulations` is passed. Combined with §2.1 that means *every* `owner/repo` install is
-blocked by default, which trains users to pass the escape-hatch flag reflexively and destroys
-the signal. Replace it with:
+**This is implemented as of 2026-08-25**, and the paragraph that used to stand here — "Today
+`install.rs:15` hard-fails on anything with `is_official: false`" — no longer describes `finn`.
+The field is gone from the CLI entirely: `is_official` now appears in `finn/src/` only inside
+comments recording its removal. Kept because the reasoning is still the reason the table below is
+shaped this way: the refusal, combined with §2.1, blocked *every* `owner/repo` install by default,
+which trained users to pass the escape-hatch flag reflexively and so destroyed the signal it was
+protecting.
+
+The policy:
 
 | Level | Behaviour |
 |---|---|
@@ -254,11 +338,30 @@ the signal. Replace it with:
 | `unrecognized` | **Prompt**: show the source, ask whether to install anyway, default **No**. |
 
 - `--verified-only` (or a `finn.toml` setting) refuses anything below `trusted`.
+  - The flag's name is narrower than its rule, and the rule is the one to hold to: it means
+    *vouched for*, not `level == verified`. `verified` and `trusted` both pass, because both
+    carry a human judgement; `recognized` does not, and neither does a level this build of finn
+    cannot parse. `vouched_for()` in `finn/src/trust.rs` is the single place that decides, which
+    is what keeps the provenance line and the refusal from describing a level differently.
 - `--yes` accepts the prompt non-interactively.
 - **Non-interactive contexts must not hang.** With no TTY and no `--yes`, an `unrecognized`
   package fails closed with a message naming the flag.
-- `--ignore-regulations` and the `is_official` field on `PackageSource` both go away;
-  `trust.level` replaces them.
+- The `is_official` field on `PackageSource` goes away; `trust.level` replaces it.
+- **`--ignore-regulations` stays**, and is narrowed to one check: the package **layout** sniff in
+  `validate_package` (`finn/src/validator.rs`), which looks for the files a package is expected
+  to have. It cannot switch off a trust decision, and `finn install` no longer consults it when
+  deciding about a source.
+
+  Why it survives when the refusal it used to bypass does not: one flag stood in front of two
+  unrelated gates, and only one of the two was a fake trust signal. Skipping a file-existence
+  check on a package you are looking at is an ordinary thing to want. "Regulations" also
+  appearing to waive provenance is what trained people to pass the flag reflexively, which is
+  what made the refusal worthless. So the layout half keeps the flag and the provenance half is
+  gone, and the warning names which one is being skipped rather than leaving the reader to
+  assume the wider meaning:
+
+  > `[WARN] Skipping the package layout check (--ignore-regulations). This says nothing about
+  > where the package came from or who vouches for it.`
 
 ⚠️ One item here needs your acknowledgement: I have `recognized` *not* prompting. Prompting on
 it would mean every ordinary registry package raises a dialog, which is the reflexive-yes
@@ -320,14 +423,279 @@ be added retroactively. A vouching UI can be built any week. History that was ne
 is gone. Everything trusted before this revision is marked in the interface as vouched before the
 register kept minutes, rather than being backfilled with a guess.
 
+### 2.9 Trust is package-level, and version endpoints will never carry it
+
+**Answers your ask 3.** You called it *"the only open question that changes my control flow rather
+than my structs"*, which is exactly right, so here is the guarantee in the form your control flow
+needs it.
+
+**A trust level belongs to a package, not to a version.** `versions` has no trust column
+(`src/lib/db/schema.ts`), nothing computes a per-version level, and no version response has ever
+carried one. That is not an omission waiting to be filled in — it is the model:
+
+- The two signals trust is derived from are both package-scoped or publisher-scoped.
+  `packages.is_trusted` is set on a package by a moderator (§2.7); `users.is_verified` is set on an
+  account by an admin (§2.3). Neither has a version to attach to. There is no reviewer act in the
+  system whose subject is a version.
+- Repo ownership, the third input, is proved once against the repository at registration (§2.2) and
+  is `true` for any row that exists at all.
+
+So: **a version inherits its package's trust level, and the inheritance is total.** One resolve of
+`GET /api/packages/:name` gives you the level for every version of that package, past, present and
+future. Cache it per package. Do not fetch per version, do not diff levels between versions, and do
+not build a UI element that could ever show two versions of one package at two different levels —
+there is no state in this system that produces that.
+
+**What this deliberately gives up.** A moderator cannot vouch for `http@1.2.0` and withhold the
+vouch from `http@1.3.0`. If `1.3.0` turns out to be bad, the lever is not a downgraded version
+level; it is `yanked` on that version record (§3.3), which is orthogonal to trust and which you
+already read. Trust answers *do we know who this is*; yanking answers *is this specific release
+safe to install*. Collapsing them into one per-version field would make both worse, because a
+withdrawn vouch and a withdrawn release want different words in front of a user.
+
+**If this ever changes, it changes by adding, and you will not have to guess.** A per-version level
+would arrive as a new optional field on the version record, and the rule would be *absent means
+inherit*. A `trust` object on `GET /api/packages/:name` will not stop being authoritative, so code
+written against this paragraph will still be correct.
+
+### 2.10 The name rule is Fin's identifier grammar
+
+**Answers your ask 7, and rev 7 answers it differently from rev 6.** The rule is the one in §2.1:
+
+```
+^[a-z][a-z0-9]*$      length 2–64, and not a Fin reserved word
+```
+
+Lowercase ASCII letters and digits, starting with a letter. No uppercase, no hyphens, no
+underscores, no dots. The registry enforces it at registration — `validatePackageName`,
+`NAME_RULE`, `NAME_MIN`, `NAME_MAX` and `FIN_RESERVED_WORDS`, all in `src/lib/package-name.ts`,
+called from `src/app/api/[[...route]]/router.ts`. Apply it in the CLI too: an input that fails it
+and contains no slash is a malformed name you can reject with no network round trip. A slash still
+always means GitHub (§2.1).
+
+**Rev 6 said this rule was not safe as a bare Fin identifier and put the consequence on you. That
+was the wrong place to put it.** The owner's ruling: the register should not issue a name that
+cannot be written in the language the register exists to serve. So the grammar moved instead of the
+CLI. The rest of this section is the analysis that produced the old answer, kept because it is the
+evidence for the new one — and because two of its three findings are still live for names the
+register does *not* issue.
+
+**What changed for you, concretely.** For a registry-resolved name: nothing has to be chosen any
+more, `import <name>;` always compiles, and the per-name branch is dead code for that path. For a
+GitHub-shorthand or Git-URL source: nothing changed at all, because those names are GitHub's and
+keep their hyphens. `import_advice` stays where it is.
+
+**Your reason for asking is the important part, and it turned up a problem.** You asked because *a
+registry name becomes a directory name and therefore an import name in Fin source*. Under rev 6's
+rule those were two different claims and only the first held. Under rev 7's rule both hold, which is
+the entire purpose of the change.
+
+**As a directory name and a URL segment: safe, unconditionally.** `[a-z0-9]` needs no escaping in
+a path or a URL, needs no quoting in a shell, and is a bare TOML key. Because the rule is
+lowercase-only there is no case-folding collision on macOS or Windows — two distinct registry names
+can never land in the same directory. One filesystem caveat rather than a language one: `con`,
+`prn`, `aux`, `nul`, `com1`–`com9` and `lpt1`–`lpt9` all satisfy the rule and are **reserved device
+names on Windows**, where a directory by that name cannot be created. Narrowing the grammar did not
+remove them and deliberately does not reserve them: they are not Fin keywords, they are one
+platform's device table, and a registry that refused `aux` would be encoding Windows into a language
+that does not care. That is a client-side layout concern, not a registry one — but it is yours,
+since you are the one making directories.
+
+**As a bare Fin identifier, under rev 6's rule: no, and this was a finding, not a formality — it is
+what got the rule changed.** Fin's identifier is
+`[a-zA-Z_]([a-zA-Z_]|[0-9])*` (`Fin/src/lexer/lexer.l`, the `ID` macro) — **no hyphen**. `-` lexes
+as `MINUS`. And Fin's import grammar has six productions
+(`Fin/src/parser/parser.y`, `import_statement`), of which the unquoted ones take `IDENTIFIER`
+sequences. Verified against a built `finc`, with a package directory actually on the search path:
+
+| Written in Fin source | Result |
+|---|---|
+| `import { greet } from "http-client";` | **compiles, and binds the symbol** |
+| `import "http-client";` | compiles — but see below |
+| `http-client.greet()` | `error: Undefined variable 'http'` + `Undefined variable 'client'` |
+| `import http-client;` | `error: syntax error, unexpected MINUS, expecting KW_AS or SEMICOLON or DOUBLE_COLON` |
+| `import "http-client" as hc;` | `error: syntax error, unexpected KW_AS, expecting SEMICOLON` — the grammar has no aliased *quoted* import |
+| `import type;` | `error: syntax error, unexpected KW_TYPE` |
+
+Three separate problems, in increasing order of nastiness:
+
+1. **A hyphen cannot appear in an unquoted import.** `import http-client;` is a syntax error, and
+   so is `import http-client.sub;`. Only the quoted forms can name a hyphenated package.
+2. **A plain quoted import of a hyphenated package compiles and is then unusable.** `import
+   "http-client";` succeeds, and the analyzer binds the module to a namespace symbol whose name is
+   the path stem — literally `http-client`
+   (`Fin/src/semantics/impl/Analyzer_Decl.cpp`, the no-targets branch of `visit(ImportModule&)`).
+   No expression can spell that symbol, and there is no `import "…" as alias` production to rename
+   it. So the import silently binds something unreachable: a green compile that gave the user
+   nothing. This is the worst of the three, because nothing reports it.
+3. **Keywords were legal registry names.** `type`, `class`, `if`, `in`, `as`, `do`, `fn`, `for`,
+   `let`, `new`, `try`, `any`, `pub`, `priv`, `from`, `enum`, `null`, `true`, `false`, `super`,
+   `while`, `break`, `macro`, `static`, `import`, `struct`, `return`, `extern`, `sizeof`, `typeof`,
+   `operator`, `interface`, `implements`, `m1778` and the rest all satisfied rev 6's name rule.
+   Every one of them is a syntax error in an unquoted import, and all of them work quoted. Rev 7
+   refuses all of them at registration.
+
+**What survives all three:** `import { A, B } from "<name>";` — the named quoted import. It works
+for every name rev 6's rule permitted, hyphenated and keyword-colliding alike, because the path is a
+string literal and the bound names are the *exported symbols*, which are Fin identifiers chosen by
+the library author rather than by whoever claimed the registry name. Confirmed compiling for both
+`"http-client"` and `"type"`. That property is why the reserved-word list is only today's keywords —
+see below.
+
+**The decision: the rule narrowed, and the constraint left the CLI.** Rev 6 ended this section by
+naming `^[a-z][a-z0-9]*$` plus a keyword denylist as the registry-side alternative and rejecting it.
+The owner reversed that. It is now the rule. Two of rev 6's three "yours" items survive the reversal
+and one is retired:
+
+- **Keep installing to a directory named exactly the registry name.** Unchanged, and now trivially
+  safe: the name is an identifier, so the directory is one too.
+- **Do not "fix" anything by normalising a name into an identifier.** Unchanged, and the registry
+  holds itself to it: a refused name is refused, never rewritten. `http-client` does not become
+  `http_client` or `httpclient` server-side. Two spellings of one package is a fact neither of us
+  should invent — the same rule as never inventing a version.
+- **Retired: choosing the import form per registry name.** There is nothing left to choose for a
+  registry name. Keep choosing it for GitHub shorthand and Git URLs, where hyphens are still real.
+
+**The two arguments rev 6 rejected this with, and what answers them.**
+
+- *"It bans hyphens, which is the separator every comparable ecosystem's users expect."* True, and
+  it is the real cost. What it buys is that the most obvious thing a user can write —
+  `import <name>;` — always works. The rev 6 alternative was a register where the obvious form is a
+  syntax error and the next-most-obvious form compiles green while binding a symbol no expression
+  can spell (finding 2 above, the one nothing reports). Multi-word names run together, and the
+  *repository* keeps its hyphen: `acme/fin-http` publishes `http`, which was already the convention
+  in §2.1.
+- *"A keyword denylist pins registry validation to the compiler's grammar, so adding a Fin keyword
+  would retroactively invalidate a registered name."* This one is answerable, and the answer is why
+  the list is deliberately not forward-looking. The check runs **only at registration** —
+  `validatePackageName` has exactly two call sites, the `POST /api/packages` handler and the browser
+  form, and no lookup, resolve, search or version endpoint validates a name — so no future edit to
+  the list can unregister anything or make an existing package unresolvable. And if Fin gains a
+  keyword that an existing package already holds, that package keeps
+  `import { A, B } from "<name>";`, which never lexes the name at all. A future keyword therefore
+  costs a name five of its six import forms and leaves it installable and usable. That is a
+  degradation, not an invalidation, and it is not worth reserving `select`, `union`, `assert`,
+  `some`, `none`, `with` or `go` today to prevent.
+
+**What is reserved is exactly what the lexer has today**, derived mechanically from the keyword
+rules in `Fin/src/lexer/lexer.l` and filtered to the strings a registry name could actually be —
+`^[a-z][a-z0-9]*$`, two characters or more. Entries that cannot be spelled as a name (`Self`,
+`as_ptr`, `#for`, `#index`) are excluded, because a reserved word no name can collide with is dead
+weight. `src/lib/package-name.ts` carries the list and the derivation note; the test suite asserts
+every entry is a name the register could otherwise have issued, so dead weight cannot creep in.
+Two countings agree on 58: the lexer's 60 explicit keyword rules less `Self` and `as_ptr`, or every
+quoted literal in the same region less those two, `#for`, `#index` and the operators `->`, `::`,
+`=>`.
+
+**Two notes on the list, both of which matter more to you than to us.** First, `m1778` is on it and
+is the one entry that does not look like a keyword: `lexer.l:209` → `KW_M1778`, with a parser
+production, an `ASTTokenKind` and a codegen arm, written `blame m1778;`. It matches the narrowed rule
+exactly, it is the project owner's own handle — so among the likelier names anybody would try — and
+it is **missing from `FIN_KEYWORDS`**. Had this list been copied from `finn` instead of derived from
+the lexer, that is the single name that would have slipped through. Second,
+`Fin/src/diagnostics/DiagnosticEngine.cpp` is **not** the source and must not become one: it is a
+diagnostics list for highlighting and suggestions, and it names eight words the lexer does not
+reserve (`bez`, `beton`, `elseif`, `self`, `short`, `uint`, `ulong`, `ushort`). Reserving one of
+those would cost a registrant a legal name and nothing would fail to reveal it.
+
+### 2.11 A published version record is immutable
+
+**Answers your ask 9, and your phrasing is what settles it:** ***"`finn.lock` is meaningless
+without it."*** That is not rhetoric; it is the whole argument. A lockfile is a promise that a
+resolved coordinate keeps resolving to the same bytes. If the registry may rewrite what a version
+record points at, then a lockfile pins a name to a row that can change under it, and the file
+records nothing that a fresh resolve would not have produced anyway.
+
+**The guarantee.** Once a version record exists for `<name>@<version>`, its `version`, `tag` and
+`commit` never change. Not corrected, not repointed, not tidied. A version is not deleted either:
+the only lever over a published version is `yanked`, which is additive, reversible, and leaves the
+coordinate resolvable so that a lockfile already pinning it keeps working (§3.3). Yanking removes a
+version from *selection*, never from *existence* — those are different operations and the
+distinction is the reason `yanked` is a flag rather than a `DELETE`.
+
+**What happens when a publisher moves a tag.** This is the case the guarantee is actually about,
+because it is the one that happens by accident. Suppose `v1.2.0` was recorded at commit `abc123`,
+and the publisher force-pushes the tag to `def456`:
+
+- **The registry does not notice, and does not follow.** It stores `commit` at the moment the
+  version is recorded and never re-reads the repository. `abc123` is what the record says a week
+  later and a year later. Deliberately: a registry that chased a tag would silently change what a
+  lockfile resolves to, which is precisely the failure the immutability guarantee exists to prevent.
+- **The record is now a claim about a commit the tag no longer names**, and that is the correct
+  state for it to be in. It is *evidence of a discrepancy*, which a mutable record would have
+  destroyed. `commit` is the coordinate to check out; `tag` is provenance, and the honest thing for
+  a client to do is prefer the commit and treat a mismatch as a signal.
+- **What `finn` should do:** resolve by `commit`, not by `tag`, wherever the record gives you both.
+  If you fetch by tag and get a commit that is not the one on the record, that is not a
+  hash-mismatch error to retry — it is history having been rewritten upstream, and it deserves a
+  message that says so and names both commits. Do not silently accept the new one, and do not
+  report it as a network problem.
+- **What the registry will do:** nothing automatic. A moved tag is a moderation matter, and the
+  levers are the ones that already exist — `yanked` on the affected version, and, if it is a
+  pattern, `is_trusted` withdrawn on the package with a minute recorded against it (§2.8). Neither
+  lever edits the record, which is the point.
+
+**Where the guarantee is currently free.** Nothing in this codebase has ever written to `versions`
+(§6, and `REGISTRY-API.md` §10.1). So immutability is trivially true today, and this section is
+here to be written down *before* the write path exists rather than after — because whatever writes
+version records has to be built to honour it, and "insert only, no update, no delete" is a much
+easier constraint to design in than to retrofit. `Sync.md` §3.2 tracks how records come to be
+written at all; this section constrains it.
+
 ---
 
 ## 3. Endpoint contract
 
 **Base URL**: `<registry>/api`
 
-**Registry URL precedence**, as `finn/src/registry.rs:38-41` already implements it:
-`[registry].url` in `finn.toml` → `FINN_REGISTRY_URL` env → `https://finn-registry.pages.dev`.
+**The base URL is discovered, not configured — and this supersedes rev 5's version of this
+paragraph.** Rev 5 said the hostname was unsettled and that we would send you the final one. There
+is nothing to send. The registry has no stable hostname and is not expected to get one, so the
+current base URL is **published in this repository, on the default branch**, and `finn` fetches it:
+
+```
+https://raw.githubusercontent.com/M1778/finn-registry/HEAD/registry/v1/url.txt
+```
+
+Precedence, in the order a client must apply it:
+
+| Tier | Source | Notes |
+|---|---|---|
+| 1 | `[registry].url` in `finn.toml` → `FINN_REGISTRY_URL` → an explicit argument | what `finn/src/registry.rs:38-41` already does, minus the default. Never overridden by discovery |
+| 2 | the pointer file above | plain text, one URL, `#` comments. Format in `REGISTRY-API.md` §12.2 |
+| 3 | a compiled-in last-known-good URL | only when tier 2 cannot be fetched at all |
+
+Beside the pointer, on the same branch, is `registry/v1/packages.json` — a generated fallback index
+of package → repository for the standard library and the first-party libraries, `schema: 1`, read
+when the live API is unreachable. `REGISTRY-API.md` §12 is the reference for both files: exact
+formats, the guarantee that `schema` is checked before any other field is read, and why both paths
+are permanent API. `Sync.md` §3.1 is the design and carries what each side owes.
+
+Two consequences worth carrying into your own planning. **It decouples our deploy from your
+release** — we can move hosts without a `finn` release, and `finn` can ship before we have ever
+deployed, so the hostname stops being a cross-project blocker. And **the pointer is a trust root**:
+push access to this repository redirects package resolution for every user. That is mitigated by the
+repository being public, which makes `git log registry/v1/url.txt` a complete public record of every
+redirect ever issued — a hostname compiled into a binary could offer nothing comparable.
+
+**Two things about it are not true yet, and you should know both.** The pointer publishes **no URL
+at all** — it is comments only — because nothing has been deployed and a `workers.dev` account
+subdomain is not knowable before the first publish; and both files currently live on
+`feat/registry-implementation`, not on the default branch, so **`HEAD` 404s for both until that
+branch merges.**
+
+It used to end with a placeholder (`…REPLACE-WITH-ACCOUNT-SUBDOMAIN…`), and that was removed on
+purpose: it satisfies every rule the format states — https, a non-empty host, no trailing slash, no
+path — so you cannot tell it from a real answer. You would accept it, cache it for 24 hours, fail
+to connect, and report the registry as *unreachable* when the truth is that it has never been
+*deployed*. A file of comments produces the honest failure instead: no URL line, no cache, no
+compiled-in default, and a message that says so. Nothing on your side needs to change for that —
+`parse_pointer` already errors with *"it contains no URL line"*, and `registry_url: null` in the
+index is already handled. Do **not** add a placeholder denylist; the guard belongs where the file is
+authored, and `finn-registry` has one (a generator refusal, a CI step, and a test).
+
+Neither is a design problem, but tier 2 does not answer today, which makes your error messages
+load-bearing in the meantime. There is no tier 3 to lean on and should not be.
 
 ### 3.1 Casing: snake_case on every CLI-facing response
 
@@ -493,8 +861,9 @@ parameter reference.
 
 ### 3.6 `GET /api/health` — optional
 
-`{ "status": "ok", "time": "..." }`. Useful if you want `finn healthcheck` to report registry
-reachability; nothing requires it.
+`{ "status": "ok", "time": "..." }`. Useful if you want `finn doctor` to report registry
+reachability; nothing requires it. (`finn healthcheck` was the name here until §3.10 of
+`Sync.md` retired it; the diagnostic that inspects an *installation* is `doctor`.)
 
 ### 3.7 Rate limiting
 
@@ -639,7 +1008,7 @@ each one:
 | `invalid_trust`    | 400    | A `trust` value outside `verified` \| `trusted` \| `recognized`    |
 | `rate_limited`     | 429    | §3.7. Carries `Retry-After`, plus `retryAfter` in the body        |
 | `invalid_request`  | 400    | A §3.10 request body that is not JSON (`router.ts:741, 799`)     |
-| `invalid_name`     | 400    | A package name failing the §2.1 grammar                          |
+| `invalid_name`     | 400    | A package name failing the §2.1 grammar, its length bounds, or the reserved-word list |
 | `invalid_repo_url` | 400    | A `repo_url` that is not a GitHub repository URL                 |
 | `name_taken`       | 409    | Registration, name already claimed                               |
 | `unauthorized`     | 401    | A browser-session endpoint called without a session              |
@@ -797,12 +1166,18 @@ Reported as found; all in `finn`, none blocking the registry work.
    `Healthcheck`. The registry's docs additionally document `finn login`, `finn verify`, and
    `finn publish`; per §2.6 those are not planned, and I am deleting them from our docs.
 
-7. **`DEFAULT_REGISTRY` points at the wrong host.** `finn` ships
-   `https://finn-registry.pages.dev`, a Cloudflare **Pages** URL. The registry deploys to
-   Cloudflare **Workers** (ADR-0005), because Pages has no D1 binding and every endpoint in §3 is
-   a database read. A Pages host would serve the static pages and 404 every API route. The hostname
-   is not settled yet on our side — treat it as a value to make configurable rather than one to
-   correct to a different literal, and we will send you the final one before either side ships.
+7. ~~**`DEFAULT_REGISTRY` points at the wrong host**~~ — **settled, and settled better than this
+   item asked.** `finn` shipped `https://finn-registry.pages.dev`, a Cloudflare **Pages** URL,
+   where the registry deploys to Cloudflare **Workers** (ADR-0005) because Pages has no D1 binding
+   and every endpoint in §3 is a database read — so a Pages host would have served the static
+   pages and 404ed every API route. Rev 5 said we would send you the final hostname; per §3 there
+   is no final hostname, and rev 6 proposed demoting the constant to a tier 3 last-known-good.
+   What you built is better: `DEFAULT_REGISTRY` is `None` and there is no tier 3, only the pointer
+   and your own 24-hour cache of it. That is the right call and we are not asking for it back. A
+   wrong URL in a released binary cannot be corrected remotely, and "no such host" and "wrong
+   host" both surface to a user as *package not found* for every package — an empty answer is
+   recoverable, a confident wrong one is not. Whatever supplied the URL, keep naming it in the
+   error: the URL you tried and where it came from. `nowhere_to_ask` already does.
 
 8. **`add.rs:204` sets `is_official: true`** for anything resolved from the registry. There is no
    such property. Being on the register means a name claim was proved against a repository (§2.2)
@@ -826,9 +1201,12 @@ of the browser-session surface. What is and is not covered is spelled out under 
 | Registration with the push-access gate (§2.2)          | Live                               |
 | Version records, so `latest_version` resolves          | **Not built — see below**          |
 | `GET /api/packages/:name/versions` (§3.3) and §3.4     | Live                               |
-| Verification requests (§3.10) plus the reviewers’ bench (§2.7) | Live, untested          |
+| Verification requests (§3.10) plus the reviewers’ bench (§2.7) | Live, covered            |
 | `trust` on every response (§2.4)                       | Live — §2.5 is yours              |
 | Search envelope (§3.5)                                 | Live                               |
+| Pointer file `registry/v1/url.txt` (§3)                | Written — **no URL line yet**, and on a feature branch |
+| Fallback index `registry/v1/packages.json` (§3)        | Generated — empty, `registry_url: null`, on a feature branch |
+| Name rule narrowed to `^[a-z][a-z0-9]*$` + reserved words (§2.10) | Live, both enforcement sites |
 
 **Correction to an earlier revision of this table.** Up to rev 5 the registration row also claimed
 version records. It was wrong, and `REGISTRY-API.md` §10.1 was right: **nothing in this codebase
@@ -841,16 +1219,23 @@ projects; it is stated as such in `Sync.md` §3.2, because your `LockedPackage` 
 exactly the four fields a version record needs and you will never hold a credential to submit
 them with.
 
-**What the test suite covers** (`tests/`): dedicated suites for `trust.level` derivation (§2.4),
-§3.6 health, §3.2 resolve, §3.3 and §3.4 version records, §3.5 search and browse, §3.9 publisher
-profiles, and both registration endpoints of §3.10 including their `401`s — plus a permanent
-regression suite asserting that no endpoint invents a `1.0.0` version.
+**What the test suite covers** (`tests/`), re-measured 2026-08-25 at **374 tests across 19 files**:
+dedicated suites for `trust.level` derivation (§2.4), §3.6 health, §3.2 resolve, §3.3 and §3.4
+version records, §3.5 search and browse, §3.9 publisher profiles, and both registration endpoints of
+§3.10 including their `401`s. Plus, on the browser-only side you do not call but which shares this
+code: verification requests, the reviewers' bench, `GET /api/stats`, `GET /api/dashboard/data`, the
+proof-of-work gate, and the fallback-index generator. Plus five permanent regression suites, each
+pinning a bug that actually happened: no endpoint invents a `1.0.0` version; no forged session token
+is accepted; the OAuth state never reaches a parent frame; a request origin is never taken from
+headers; and neither discovery file may carry a guessed registry URL.
 
-**What it does not.** `POST /api/me/verification-request` has no test at all. Neither
-`GET /api/stats`, `/api/dashboard/data`, `/api/me/settings` nor the OAuth sign-in flow has a
-behavioural test; the first three are only swept by the no-fabricated-version regression, which
-checks one string and nothing else. All of that is browser-only surface, so none of it weakens what
-§3 promises you — but it is why the verification-request row above says untested.
+**What it does not**, corrected 2026-08-25 — **an earlier revision of this paragraph named five
+untested surfaces and three of them had tests, which is how finished work gets billed as open.**
+What is genuinely still uncovered is the **OAuth sign-in flow end to end**: two regressions pin two
+specific historical bugs in it, but nothing exercises the callback from start to finish. Two page
+components (`RegisterForm.tsx`, the homepage specimen) have no test at all, because there is no DOM
+test harness in this repository and adding one means a lockfile change; they rest on typecheck and
+review. None of that weakens what §3 promises you — it is all browser-only surface.
 
 **What "live" does not mean.** It means implemented, typechecked, and — for everything in the
 covered list above — covered by the test suite, which drives the real Hono router in Node against a
@@ -858,11 +1243,24 @@ temporary SQLite file. It does **not** mean exercised on the deploy runtime: of 
 `/api/health`, `/api/packages` and a `404` on an unregistered name have been served from `workerd`
 with a D1 binding, and that against an empty register (§3.8). It does not mean deployed. Nothing
 is deployed yet: `wrangler.jsonc` still carries a placeholder D1 database id, the generated
-migrations have never been applied to a remote database, and the hostname is unsettled (§5.7). So
-do not point `finn` at a URL and expect an answer — ask us for the host when you are ready to
-integrate, and we will tell you whether it is answering.
+migrations have never been applied to a remote database, and there is no hostname to be given
+(§3, §5.7). So do not point `finn` at a URL and expect an answer. The pointer file is the mechanism
+that answers that question from now on — but read the two rows added to the table above before you
+rely on it. **Corrected 2026-08-25: the pointer carries no URL line at all, and this paragraph used
+to say it carried a placeholder.** That was true for one revision and the placeholder was removed
+deliberately, because a syntactically valid guess passes every format rule the file documents and
+`finn` would cache it for 24 hours — turning *not deployed yet* into *unreachable*, which is the
+failure your own tier-3 decision exists to prevent. `url.txt` is comments only (0 non-comment
+non-blank lines) and `packages.json` carries `"registry_url": null`, so `parse_pointer` reports that
+no registry deployment is known, which is the honest answer. Both files are still on
+`feat/registry-implementation` rather than on the default branch, so `HEAD` 404s for both until that
+merges. Discovery is built and
+not yet serving; ask us when you are ready to integrate and we will tell you whether it is.
 
-The two things still waiting on you: §2.5, the `recognized` prompt, which is the only thing that
-blocks the trust model being end-to-end; and §4.3, whether the CLI wants attribution at all. §4.1
-(what a checksum can honestly mean) is still open and still hinges on one answer — whether
-`calculate_package_hash` is reproducible from a clean clone.
+What is waiting on you: §2.5, the `recognized` prompt, which is the only thing that blocks the trust
+model being end-to-end; §4.3, whether the CLI wants attribution at all; and, new in rev 6, the
+import-form consequence of §2.10 — a hyphenated or keyword-colliding package name is installable and
+resolvable but cannot be written as a bare `import`, which is a decision about what `finn` puts on
+disk and prints to a user, not about anything the registry serves. §4.1 (what a checksum can honestly
+mean) is still open and still hinges on one answer — whether `calculate_package_hash` is reproducible
+from a clean clone.

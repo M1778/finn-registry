@@ -7,7 +7,7 @@ export const metadata = {
 # Starting a project
 
 ```bash
-finn init my-app
+finn init myapp
 ```
 
 `finn init` takes a path, defaulting to the current directory, and asks three
@@ -29,7 +29,7 @@ command, not just `init`.
 A binary project:
 
 ```text
-my-app/
+myapp/
 ├── finn.toml       # the manifest
 ├── .gitignore      # .finn/, out/, *.o, *.exe
 ├── .finn/          # local environment; fetched packages land in .finn/packages
@@ -44,7 +44,7 @@ that re-exports it.
 
 ```toml
 [project]
-name = "my-app"
+name = "myapp"
 version = "0.1.0"
 envpath = ".finn"
 entrypoint = "main.fin"
@@ -65,6 +65,11 @@ stored verbatim and resolved again on every sync:
 http = "http"                 # a bare name, resolved through the register
 fin-http = "acme/fin-http"    # a slash, so straight to GitHub
 ```
+
+A GitHub repository keeps whatever name it has, hyphens included — the narrowed
+grammar below applies to *registered* names, not to repositories. `finn` warns
+when a dependency's name cannot be written as `import <name>;`, and points at the
+form that works.
 
 <Callout kind="warning">
   `[packages]`, not `[dependencies]`, and the value is a source rather than a
@@ -95,7 +100,22 @@ yanked still installs for a project that already pins it.
 
 ## Names
 
-The `name` in `[project]` is yours to choose locally. If you later
-[register the package](/docs/registering-a-package), the registered name is
-separate and has a stricter grammar: lowercase letters, digits and single
-hyphens, starting with a letter. Bare — `http`, never `acme/http`.
+The `name` in `[project]` is yours to choose locally — `finn` takes it verbatim
+from `--name` or the directory name and does not police it. A **registered** name
+is separate and stricter: lowercase letters and digits, starting with a letter,
+2 to 64 characters, and not one of Fin's reserved words. Bare — `http`, never
+`acme/http`.
+
+```text
+myapp      httpclient    a1        ✓
+my-app     my_app        MyApp     ✗   only letters and digits
+type       let           string    ✗   reserved words in Fin
+```
+
+<Callout>
+  The register refuses those rather than rewriting them, so a project called
+  `my-app` has to pick a different name the day it is
+  [registered](/docs/registering-a-package). Every registered name is a name you
+  can write as `import <name>;` in Fin, which is the whole reason the rule is that
+  narrow — and choosing one that fits from the start costs nothing.
+</Callout>

@@ -18,7 +18,7 @@
  * without a database.
  */
 
-import { deriveTrustLevel } from "@/lib/trust";
+import { deriveTrustLevel, REPO_OWNERSHIP_CONFIRMED } from "@/lib/trust";
 import type {
   ChecksumOrigin,
   PackageRecord,
@@ -81,19 +81,6 @@ export interface PackageSummary {
 
 /** A §3.3 version record plus the repository, so §3.4 resolves in one request. */
 export type VersionRecordWithRepo = VersionRecord & { repo_url: string };
-
-/**
- * Repository ownership is proven at registration and a claim is refused without
- * it (ADR-0004), so every row that exists in `packages` has it confirmed. There
- * is no column for it because there is no state in which it is false and the
- * package is still registered.
- *
- * If registration ever gains a path that defers the proof, this is the one place
- * that has to learn about it.
- */
-function repoOwnershipConfirmed(_pkg: PackageIdentity): boolean {
-  return true;
-}
 
 const SQLITE_TIMESTAMP = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/;
 
@@ -169,12 +156,20 @@ export function serializePublisher(
 /**
  * The trust object: one derived level, plus the raw signals for display. `finn`
  * branches on `level` alone (§2.4).
+ *
+ * `repoOwnershipConfirmed` is not read from the row. It has no column, because
+ * every row reached `packages` through the one insert that proves push access
+ * first — see `REPO_OWNERSHIP_CONFIRMED` in `src/lib/trust.ts` for what that
+ * invariant does and does not assert. This file is *not* the only place that
+ * publishes the signal (`/api/stats` and the moderation bench derive a level
+ * too), which is why the value lives there and is imported here rather than
+ * written out again.
  */
 export function serializeTrust(pkg: PackageIdentity, owner: PublisherIdentity): Trust {
   const signals = {
     publisherVerified: owner.isVerified,
     packageTrusted: pkg.isTrusted,
-    repoOwnershipConfirmed: repoOwnershipConfirmed(pkg),
+    repoOwnershipConfirmed: REPO_OWNERSHIP_CONFIRMED,
   };
 
   return {

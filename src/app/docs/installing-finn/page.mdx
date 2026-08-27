@@ -14,11 +14,11 @@ The install script detects your platform and unpacks the matching release
 archive from GitHub into `~/.finn/bin`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/M1778M/finn/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/M1778/finn/master/install.sh | sh
 ```
 
 On Windows, use the installer from the
-[releases page](https://github.com/M1778M/finn/releases).
+[releases page](https://github.com/M1778/finn/releases).
 
 <Callout>
   Neither works yet: no `finn` release has been tagged, so the script and the
@@ -38,7 +38,7 @@ If you have a Rust toolchain, this is the shortest path and always builds the
 current `master`:
 
 ```bash
-git clone https://github.com/M1778M/finn
+git clone https://github.com/M1778/finn
 cd finn
 cargo install --path .
 ```
@@ -58,15 +58,50 @@ dependencies are present in `.finn/packages`. It does not look for the compiler
 and it does not contact the registry, and outside a project it fails rather than
 reporting anything.
 
-## Pointing at a different registry
+<Callout>
+  That name is retired. What replaces it is a split: `finn doctor` inspects your
+  *installation* — store, toolchains, cache, shims — and `finn check` inspects
+  your *code*, typechecking it by invoking `finc`. Neither has shipped yet, and
+  `healthcheck` keeps working as a hidden alias for one release after they do, so
+  it is still what you run today.
+</Callout>
 
-`finn` talks to `https://finn-registry.pages.dev` unless a project says
-otherwise. To override it, add a `[registry]` table to `finn.toml`:
+## Pointing at a registry
+
+`finn` has no registry address compiled into it. It reads one from a pointer file
+in the registry repository:
+
+```text
+https://raw.githubusercontent.com/M1778/finn-registry/HEAD/registry/v1/url.txt
+```
+
+That file publishes no address today: nothing has been deployed yet, and it is
+not on the default branch `finn` reads from either. So `finn` reports that it
+knows of no registry and names the two ways to tell it — rather than reporting
+that your package does not exist, which is what a wrong address compiled into the
+binary would have produced.
+
+<Callout>
+  A URL baked into a released binary cannot be corrected remotely, and one that
+  404s turns *"no registry has been deployed"* into *"the registry says your
+  package does not exist"*. The pointer file exists so the address can change
+  without a `finn` release; the absence of a compiled-in default exists so a
+  guess can never be mistaken for an answer.
+</Callout>
+
+To point it somewhere yourself, add a `[registry]` table to `finn.toml`:
 
 ```toml
 [registry]
 url = "https://registry.example.internal"
 ```
 
-Anything you point it at has to answer the same endpoints — see the
-[HTTP API](/docs/api).
+Or, for one command, set the environment variable:
+
+```bash
+FINN_REGISTRY_URL=https://registry.example.internal finn add http
+```
+
+Either one wins outright: an address you gave ends discovery, and the pointer
+file is never fetched to second-guess it. Anything you point it at has to answer
+the same endpoints — see the [HTTP API](/docs/api).

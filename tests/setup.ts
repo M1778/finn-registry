@@ -54,6 +54,18 @@ delete process.env.DB;
 // the test output.
 process.env.CAPTCHA_SECRET = "test-captcha-secret-not-a-real-one";
 
+// A configured deployment, which is what every real one is: `APP_URL` is the
+// only source of the OAuth origin, and sign-in refuses rather than deriving one
+// from a request header. The suite used to get an origin for free, because the
+// router fell back to the `Host` header when this was unset — so a test that
+// needed an authorize URL passed without anything being configured. Removing the
+// fallback made that absence visible, and the honest fix is for the harness to
+// model a deployment that has been configured.
+//
+// Cases about the *unconfigured* deployment delete it for the duration
+// (`tests/regressions/no-origin-from-headers.test.ts`) and put it back.
+process.env.APP_URL = "https://registry.test";
+
 const client: Client = createClient({ url: process.env.DATABASE_URL });
 
 /** Absolute path of this suite's database file. Exposed for diagnostics only. */
@@ -378,6 +390,15 @@ export interface SeedPublisherInput {
   avatar_url?: string | null;
   kind?: "user" | "organization";
   is_verified?: boolean;
+  /**
+   * The moderation role, `users.role`. Defaults to `"user"`, which is what every
+   * real account starts as — a test that wants a privileged caller has to say so,
+   * so a seed can never hand out a role by accident.
+   *
+   * The two roles are not interchangeable and the tests depend on that: a
+   * moderator vouches for a package, an admin verifies a publisher (ADR-0003).
+   */
+  role?: "user" | "moderator" | "admin";
   /** When the account joined; §3.9 publishes it. */
   created_at?: string;
 }
@@ -389,6 +410,8 @@ export interface SeededPublisher {
   avatar_url: string | null;
   kind: "user" | "organization";
   is_verified: boolean;
+  /** `users.role`. `"user"` unless the seed asked for a privileged account. */
+  role: "user" | "moderator" | "admin";
   /**
    * Set for an organisation publisher. The schema has no `users.kind` column:
    * an organisation registration is a package linked to an `organizations` row,
@@ -467,6 +490,7 @@ export async function seedPublisher(input: SeedPublisherInput = {}): Promise<See
     avatar_url: input.avatar_url ?? `https://avatars.example/${login}.png`,
     kind,
     is_verified: input.is_verified ?? false,
+    role: input.role ?? "user",
     organization_id: null,
     // GitHub logins are globally unique across users and organisations, so an
     // organisation publisher's owning account cannot share the organisation's
@@ -484,6 +508,7 @@ export async function seedPublisher(input: SeedPublisherInput = {}): Promise<See
     ["avatar_url", publisher.avatar_url],
     [["kind", "account_type", "publisher_kind"], publisher.kind],
     [["is_verified", "verified", "publisher_verified"], publisher.is_verified],
+    ["role", publisher.role],
     ["created_at", input.created_at ?? "2026-01-01T00:00:00Z"],
   ]);
 

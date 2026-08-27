@@ -142,3 +142,23 @@ interface may not claim anything the system cannot back.** No counts nothing inc
 for a check that does not happen, no documented command that does not exist. If you find one, that
 is a bug of the same severity as a crash — most of the work in this repository so far has been
 removing them.
+
+## Licence
+
+AGPL-3.0-only. The full text is in [`LICENSE`](LICENSE).
+
+The Affero clause is the point, not an accident of choosing a strong copyleft. A registry is
+infrastructure other people are asked to trust, and §13 means anyone who *runs* one has to hand its
+users the source of the version they are actually talking to. So the "Source" link in the footer is
+a licence obligation and not a courtesy: a deployment that removes it is out of compliance. If you
+fork and deploy, keep it pointing at **your** repository, not this one — otherwise you are offering
+source that is not the source you are running.
+
+`finn` and `Fin` are GPL-3.0-only. That asymmetry is deliberate: they are programs you run on your
+own machine, where GPL already gives you everything AGPL would, and this is a service you talk to
+over a network, where it does not.
+
+It also constrains which way code may be copied between the three repositories. AGPL-3.0 §13
+explicitly permits combining GPL-3.0 work into an AGPL-3.0 one, so code may travel **from `finn` or
+`Fin` into here**. It may not travel the other way, because AGPL's terms cannot be imposed on a
+GPL-3.0-only work. If you are moving something between repos, that is the direction to check.
