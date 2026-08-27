@@ -293,6 +293,13 @@ const realFetch = globalThis.fetch;
  * `checkPushAccess` would assume away exactly that. Anything that is not the
  * GitHub API throws, so a test can never silently reach the network.
  *
+ * Two hosts, not one. The OAuth token exchange goes to `github.com` and every
+ * other call goes to `api.github.com`, so the sign-in flow cannot be exercised
+ * end to end against an `api.github.com`-only allowlist. It is that one path and
+ * not the host: `https://github.com/login/oauth/access_token` is allowed and
+ * nothing else on `github.com` is, because a stub that let the whole site
+ * through would also let a raw.githubusercontent.com-shaped mistake through.
+ *
  * Returns the call log, so a test can assert that the check happened at all.
  */
 export function stubGitHub(
@@ -304,7 +311,10 @@ export function stubGitHub(
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
-    if (!url.startsWith("https://api.github.com/")) {
+    const allowed =
+      url.startsWith("https://api.github.com/") ||
+      url === "https://github.com/login/oauth/access_token";
+    if (!allowed) {
       throw new Error(`[tests] unstubbed network call to ${url}`);
     }
 

@@ -1254,7 +1254,7 @@ that does not exist on the majority of repositories. §3.3 and §3.4 both publis
 record. This is a resolution question for `finn`, not a registry one, and it is flagged here rather
 than decided here.
 
-**What the test suite covers** (`tests/`), re-measured 2026-08-27 at **401 tests across 20 files**:
+**What the test suite covers** (`tests/`), re-measured 2026-08-27 at **422 tests across 21 files**:
 dedicated suites for `trust.level` derivation (§2.4), §3.6 health, §3.2 resolve, §3.3 and §3.4
 version records, §3.5 search and browse, §3.9 publisher profiles, and both registration endpoints of
 §3.10 including their `401`s. Plus, on the browser-only side you do not call but which shares this
@@ -1263,18 +1263,24 @@ proof-of-work gate, and the fallback-index generator. Plus the GitHub App delive
 writes version records — the only writer of `versions` anywhere (ADR-0007) — covering signature
 verification over the delivered bytes, authorisation against the registered repository rather than
 any name in the payload, every kind of delivery that records nothing, and the immutability of §2.11.
-Plus six permanent regression suites, each pinning a bug that actually happened: no endpoint invents
-a `1.0.0` version; no forged session token is accepted; the OAuth state never reaches a parent
-frame; a request origin is never taken from headers; neither discovery file may carry a guessed
-registry URL; and no package row exists without proven push access.
+Plus the OAuth sign-in flow from GitHub's callback to a usable session. Plus six permanent
+regression suites, each pinning a bug that actually happened: no endpoint invents a `1.0.0` version;
+no forged session token is accepted; the OAuth state never reaches a parent frame; a request origin
+is never taken from headers; neither discovery file may carry a guessed registry URL; and no package
+row exists without proven push access.
 
 **What it does not**, corrected 2026-08-25 — **an earlier revision of this paragraph named five
-untested surfaces and three of them had tests, which is how finished work gets billed as open.**
-What is genuinely still uncovered is the **OAuth sign-in flow end to end**: two regressions pin two
-specific historical bugs in it, but nothing exercises the callback from start to finish. Two page
-components (`RegisterForm.tsx`, the homepage specimen) have no test at all, because there is no DOM
-test harness in this repository and adding one means a lockfile change; they rest on typecheck and
-review. None of that weakens what §3 promises you — it is all browser-only surface.
+untested surfaces and three of them had tests, which is how finished work gets billed as open.** The
+one it named correctly was the **OAuth sign-in flow end to end**, and that is now covered too, as of
+2026-08-27: the callback has a suite of its own that takes it from a `code` to a session the next
+request can use, pins the state comparison as happening *before* the code is spent, and pins the one
+thing that connects the two halves of §3.10 — the token GitHub issues at sign-in is the token the
+registration check later presents to GitHub.
+
+What is left uncovered is two page components (`RegisterForm.tsx`, the homepage specimen), which have
+no test at all because there is no DOM test harness in this repository and adding one means a
+lockfile change; they rest on typecheck and review. That does not weaken what §3 promises you — it is
+browser-only surface.
 
 **What "live" does not mean.** It means implemented, typechecked, and — for everything in the
 covered list above — covered by the test suite, which drives the real Hono router in Node against a
