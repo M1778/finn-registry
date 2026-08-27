@@ -358,8 +358,8 @@ was paid for by a real false result in this project.
 
 | Repo | Branch | HEAD after this commit | Notes |
 |---|---|---|---|
-| `finn-registry` | `feat/registry-implementation` | see `git log -1` | **Not merged to `master`**; `origin/master` is `a5ef515`. Merging is step 1 of §4. |
-| `finn` | `master` | see `git log -1` | Committed directly on `master`. `target/` is gitignored. |
+| `finn-registry` | `feat/registry-implementation` | `5567e17` | **Not merged to `master`**; `origin/master` is `a5ef515`. Merging is step 1 of §4. |
+| `finn` | `master` | `7c3b190` | Committed directly on `master`. `target/` is gitignored. |
 | `Fin` | `wave3-semantics` | `848fde1` | **Another agent is preparing this repo — do not touch it.** Fully pushed. Three CMake artifacts are staged as *deletions*, which is correct: they were committed from another machine carrying a `/mnt/c/...` path and are gitignored. |
 
 **Pushing is the owner's.** These commits are local until they push.
