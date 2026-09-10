@@ -13,7 +13,12 @@
 const GITHUB_API = "https://api.github.com";
 const USER_AGENT = "Finn-Registry";
 
-/** What the registry is willing to copy out of a repository at registration. */
+/** What the registry is willing to copy out of a repository at registration. *
+ * This interface is also the §3.10 wire payload — `POST /registrations/check`
+ * serializes it verbatim — so nothing goes in here that a caller should not see.
+ * That is why the repository's numeric id sits on `RepoAccess` instead: it is
+ * stored (ADR-0007) but it is not published.
+ */
 export interface RepoFacts {
   full_name: string;
   description: string | null;
@@ -27,8 +32,26 @@ export interface RepoFacts {
 }
 
 export type RepoAccess =
-  | { pushAccess: true; needsScope: false; repo: RepoFacts; reason: null }
-  | { pushAccess: false; needsScope: boolean; repo: RepoFacts | null; reason: string };
+  | { pushAccess: true; needsScope: false; repo: RepoFacts; repoId: number | null; reason: null }
+  | {
+      pushAccess: false;
+      needsScope: boolean;
+      repo: RepoFacts | null;
+      repoId: number | null;
+      reason: string;
+    };
+
+/**
+ * GitHub's numeric id for a repository, from a `GET /repos/{owner}/{repo}` body.
+ *
+ * Never defaulted and never derived from anything else. A wrong id would bind a
+ * registered name to somebody else's repository, so an unusable one stays `null`
+ * and the delivery-matching code falls back to the URL (ADR-0007).
+ */
+function repoIdOf(payload: any): number | null {
+  const id = payload?.id;
+  return typeof id === "number" && Number.isInteger(id) && id > 0 ? id : null;
+}
 
 export interface GitHubRepoRef {
   owner: string;
@@ -123,6 +146,7 @@ export async function checkPushAccess(input: {
       pushAccess: false,
       needsScope: true,
       repo: null,
+      repoId: null,
       reason:
         "This sign-in did not come with a GitHub token, so your access to " +
         `${ref.fullName} cannot be checked. Sign in with GitHub again.`,
@@ -143,6 +167,7 @@ export async function checkPushAccess(input: {
       pushAccess: false,
       needsScope: false,
       repo: null,
+      repoId: null,
       reason: `GitHub could not be reached to check your access to ${ref.fullName}. Try again in a moment.`,
     };
   }
@@ -152,6 +177,7 @@ export async function checkPushAccess(input: {
       pushAccess: false,
       needsScope: true,
       repo: null,
+      repoId: null,
       reason: `Your GitHub sign-in is no longer valid, so your access to ${ref.fullName} cannot be checked. Sign in again.`,
     };
   }
@@ -161,6 +187,7 @@ export async function checkPushAccess(input: {
       pushAccess: false,
       needsScope: !hasRepositoryScope,
       repo: null,
+      repoId: null,
       reason: hasRepositoryScope
         ? `GitHub has no repository at ${ref.fullName}, or your account cannot see it.`
         : `GitHub will not show ${ref.fullName} with the access you have granted so far. If it is private, grant repository access and try again.`,
@@ -172,6 +199,7 @@ export async function checkPushAccess(input: {
       pushAccess: false,
       needsScope: false,
       repo: null,
+      repoId: null,
       reason: `GitHub declined to report your permissions on ${ref.fullName}. If it belongs to an organisation, that organisation may be blocking third-party access.`,
     };
   }
@@ -181,12 +209,14 @@ export async function checkPushAccess(input: {
       pushAccess: false,
       needsScope: false,
       repo: null,
+      repoId: null,
       reason: `GitHub returned an unexpected error (HTTP ${response.status}) while checking your access to ${ref.fullName}. Try again shortly.`,
     };
   }
 
   const payload: any = await response.json().catch(() => null);
   const facts = toRepoFacts(payload, ref);
+  const repoId = repoIdOf(payload);
   const permissions = payload?.permissions;
 
   if (!permissions) {
@@ -194,18 +224,20 @@ export async function checkPushAccess(input: {
       pushAccess: false,
       needsScope: true,
       repo: facts,
+      repoId,
       reason: `GitHub did not report your permissions on ${ref.fullName}. Grant repository access so the check can be made.`,
     };
   }
 
   if (permissions.push === true || permissions.admin === true || permissions.maintain === true) {
-    return { pushAccess: true, needsScope: false, repo: facts, reason: null };
+    return { pushAccess: true, needsScope: false, repo: facts, repoId, reason: null };
   }
 
   return {
     pushAccess: false,
     needsScope: false,
     repo: facts,
+    repoId,
     reason: permissions.pull === true
       ? `You have read access to ${ref.fullName} but not push access, so you cannot claim a name for it.`
       : `You do not have push access to ${ref.fullName}, so you cannot claim a name for it.`,

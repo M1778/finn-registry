@@ -54,6 +54,14 @@ delete process.env.DB;
 // the test output.
 process.env.CAPTCHA_SECRET = "test-captcha-secret-not-a-real-one";
 
+/**
+ * The secret the GitHub App's deliveries are signed with in tests.
+ *
+ * Exported so a test can sign a delivery the way GitHub would, and so a test
+ * about a *forged* delivery can deliberately sign with something else.
+ */
+export const WEBHOOK_SECRET = "test-webhook-secret-not-a-real-one";
+
 // A configured deployment, which is what every real one is: `APP_URL` is the
 // only source of the OAuth origin, and sign-in refuses rather than deriving one
 // from a request header. The suite used to get an origin for free, because the
@@ -65,6 +73,13 @@ process.env.CAPTCHA_SECRET = "test-captcha-secret-not-a-real-one";
 // Cases about the *unconfigured* deployment delete it for the duration
 // (`tests/regressions/no-origin-from-headers.test.ts`) and put it back.
 process.env.APP_URL = "https://registry.test";
+
+// Same again for the GitHub App's shared secret (ADR-0007). The endpoint has no
+// fallback on purpose — unset, it refuses every delivery with a 503 — so a
+// harness that left this unset would test that refusal nine times and the writer
+// never. `tests/api/webhooks.test.ts` deletes it for the one case that is about
+// the unconfigured deployment, and puts it back.
+process.env.GITHUB_WEBHOOK_SECRET = WEBHOOK_SECRET;
 
 const client: Client = createClient({ url: process.env.DATABASE_URL });
 
@@ -278,6 +293,13 @@ const realFetch = globalThis.fetch;
  * `checkPushAccess` would assume away exactly that. Anything that is not the
  * GitHub API throws, so a test can never silently reach the network.
  *
+ * Two hosts, not one. The OAuth token exchange goes to `github.com` and every
+ * other call goes to `api.github.com`, so the sign-in flow cannot be exercised
+ * end to end against an `api.github.com`-only allowlist. It is that one path and
+ * not the host: `https://github.com/login/oauth/access_token` is allowed and
+ * nothing else on `github.com` is, because a stub that let the whole site
+ * through would also let a raw.githubusercontent.com-shaped mistake through.
+ *
  * Returns the call log, so a test can assert that the check happened at all.
  */
 export function stubGitHub(
@@ -289,7 +311,10 @@ export function stubGitHub(
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
-    if (!url.startsWith("https://api.github.com/")) {
+    const allowed =
+      url.startsWith("https://api.github.com/") ||
+      url === "https://github.com/login/oauth/access_token";
+    if (!allowed) {
       throw new Error(`[tests] unstubbed network call to ${url}`);
     }
 
@@ -323,6 +348,85 @@ export function githubRepo(
     permissions: { admin: false, maintain: false, push: true, pull: true },
     ...overrides,
   };
+}
+
+// --- GitHub App deliveries --------------------------------------------------
+
+/**
+ * A GitHub `push` payload, with only the fields the receiver reads.
+ *
+ * A tag creation by default, because that is the one shape that becomes a
+ * version record; everything else a test wants is an override.
+ */
+export function pushPayload(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    ref: "refs/tags/v1.2.0",
+    before: "0000000000000000000000000000000000000000",
+    after: fakeCommit("tag-object:v1.2.0"),
+    created: true,
+    deleted: false,
+    forced: false,
+    // The commit, as opposed to `after`, which for an annotated tag is the tag
+    // object. The receiver must read this one.
+    head_commit: { id: fakeCommit("commit:v1.2.0") },
+    repository: {
+      id: 4242,
+      full_name: "acme/fin-http",
+      default_branch: "main",
+    },
+    ...overrides,
+  };
+}
+
+/**
+ * POSTs a signed delivery to the webhook endpoint.
+ *
+ * Signs with `node:crypto`, not WebCrypto — deliberately a different
+ * implementation from the one the route verifies with, so the test cannot agree
+ * with the code by sharing its arithmetic.
+ *
+ * `rawBody` sends bytes verbatim, which is how a test signs one document and
+ * delivers another: the whole point of verifying before parsing is that those two
+ * must not be interchangeable.
+ */
+export async function apiWebhook(
+  input: {
+    event?: string;
+    payload?: unknown;
+    /**
+     * Sent verbatim in place of `payload`, and signed as sent — pass `signature`
+     * as well to sign one document and deliver another.
+     */
+    rawBody?: string;
+    /** Sign with this instead of the configured secret. */
+    secret?: string;
+    /** Replace the computed header. `null` sends none at all. */
+    signature?: string | null;
+    headers?: Record<string, string>;
+  } = {},
+): Promise<ApiResponse> {
+  const body =
+    input.rawBody ?? JSON.stringify(input.payload === undefined ? pushPayload() : input.payload);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-GitHub-Event": input.event ?? "push",
+    "X-GitHub-Delivery": nodeCrypto.randomUUID(),
+    ...input.headers,
+  };
+
+  if (input.signature !== null) {
+    headers["X-Hub-Signature-256"] =
+      input.signature ??
+      `sha256=${nodeCrypto
+        .createHmac("sha256", input.secret ?? WEBHOOK_SECRET)
+        .update(body)
+        .digest("hex")}`;
+  }
+
+  return apiGet("/api/webhooks/github", { method: "POST", headers, body });
 }
 
 export function jsonResponse(payload: unknown, status = 200): Response {
@@ -465,6 +569,12 @@ export interface SeedPackageInput {
   package_trusted?: boolean;
   /** Proven push access at registration (contract §2.2). True for every real row. */
   repo_ownership_confirmed?: boolean;
+  /**
+   * GitHub's numeric repository id, as a registration captures it (ADR-0007).
+   * `null` models a row registered before the column existed, which is the case
+   * that has to fall back to matching on the URL.
+   */
+  github_repo_id?: number | null;
   versions?: SeedVersionInput[];
 }
 
@@ -541,6 +651,7 @@ export async function seedPackage(input: SeedPackageInput): Promise<SeededPackag
     ["name", input.name],
     ["description", input.description ?? `The ${input.name} package`],
     ["repo_url", repoUrl],
+    ["github_repo_id", input.github_repo_id === undefined ? null : input.github_repo_id],
     ["homepage", input.homepage ?? null],
     ["license", input.license ?? "MIT"],
     ["keywords", input.keywords ?? []],

@@ -271,7 +271,7 @@ describe("exactly one statement can create a package row", () => {
    * reach `packages` under another name, and it is cheap to clear once it has been
    * checked.
    */
-  it("has no insert target beyond the six that exist, so an alias cannot hide one", () => {
+  it("has no insert target beyond the seven that exist, so an alias cannot hide one", () => {
     const INSERT_TARGET = /\.insert\(\s*([\w.]+)\s*\)/g;
     const found = new Set<string>();
 
@@ -296,6 +296,15 @@ describe("exactly one statement can create a package row", () => {
       "src/app/api/[[...route]]/router.ts -> packages",
       "src/app/api/[[...route]]/router.ts -> users",
       "src/app/api/[[...route]]/router.ts -> verificationRequests",
+      // Added 2026-08-27 with the GitHub App's delivery endpoint (ADR-0007), and
+      // checked the way this test asks. `versions` is the versions table imported
+      // under its own name, not `packages` aliased: the webhook writes a version
+      // record for a package that already exists and has no branch that creates
+      // one, so `trust.repo_ownership_confirmed` stays backed by the registration
+      // proof. The delivery is authorised against the registered repository —
+      // never against a name in its payload — so it cannot reach a row that
+      // registration did not create.
+      "src/app/api/[[...route]]/router.ts -> versions",
       "src/lib/security.ts -> sessions",
     ]);
   });

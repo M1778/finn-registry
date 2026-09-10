@@ -1,7 +1,8 @@
 # Copy to `.dev.vars` for local development. `.dev.vars` is gitignored; this file
 # is the checked-in list of what has to be set, so keep the two in step.
 #
-# Only GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET and CAPTCHA_SECRET are secrets.
+# Only GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, CAPTCHA_SECRET and
+# GITHUB_WEBHOOK_SECRET are secrets.
 # In production they are set with `wrangler secret put`, never in
 # wrangler.jsonc, which is committed.
 
@@ -11,6 +12,34 @@
 # <APP_URL>/api/auth/github/callback.
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
+
+# The webhook secret of the registry's GitHub App — the App that turns a tag push
+# into a version record, which is the only way a version record is ever written
+# (ADR-0007). Set the same value here and in the App's "Webhook secret" field on
+# GitHub; the App's webhook URL is <APP_URL>/api/webhooks/github.
+#
+# This is a different GitHub identity from the OAuth app above and does not
+# replace it. The OAuth app is how a person signs in and how push access is
+# proved at registration; the App is how releases arrive afterwards. The App
+# needs no permissions beyond the `push` event on the repositories a publisher
+# installs it on: nothing here ever calls the GitHub API, so there is no private
+# key, no installation token and no JWT to hold. The secret is inbound-only — it
+# can forge a delivery *to* this registry and it cannot act as this registry on
+# anybody's repository.
+#
+# NO DEFAULT AND NO FALLBACK, unlike CAPTCHA_SECRET below. Leave it unset and
+# /api/webhooks/github answers 503 and names this variable, so the write path is
+# closed rather than half-open. A random per-isolate key would be worse than
+# useless here — the other end of this secret lives on GitHub and cannot be
+# re-derived, so every delivery would be rejected — and a literal default would be
+# a published forgery key. Generate one with `openssl rand -hex 32`, 16 characters
+# minimum.
+#
+# Unset is the correct state for an instance that has no App yet. Nothing else
+# degrades: registration, sign-in, browsing and every §3 read work exactly as
+# before, and `latest_version` stays null, which is an honest answer `finn`
+# already handles.
+GITHUB_WEBHOOK_SECRET=
 
 # Signing key for the proof-of-work challenges the browser forms carry. Any
 # random string of 16 characters or more; `openssl rand -hex 32` is fine. It

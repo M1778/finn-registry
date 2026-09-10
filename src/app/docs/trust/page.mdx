@@ -71,17 +71,12 @@ not look either endorsed or deficient.
 state of the register, and stopping to ask about it would raise a dialog on
 almost every install, which is how people learn to dismiss the one that mattered.
 
-The question is kept for what the register has never seen: a raw Git URL, a GitHub
-shorthand, or a local path. There `finn` shows the source and asks, defaulting to
-no, and where there is no terminal to ask at it fails rather than hanging. A
-project that wants a higher floor sets `--verified-only`, which refuses anything
-below `trusted`.
-
-<Callout kind="warning">
-  This section describes what the seals are designed for. Today `finn install`
-  refuses any source it does not consider official unless you pass
-  `--ignore-regulations`, and `finn add` does not read trust levels.
-</Callout>
+The question is kept for what the register has never seen: a raw Git URL or a
+GitHub shorthand. There `finn` shows the source and asks, defaulting to no, and
+where there is no terminal to ask at it fails rather than hanging. A directory on
+your own machine never prompts, ever — asking whether you trust your own folder
+is not a question worth a dialog. A project that wants a higher floor sets
+`--verified-only`, which refuses anything below `trusted`.
 
 <Callout>
   No seal is an endorsement by the Fin project of code the Fin project has never

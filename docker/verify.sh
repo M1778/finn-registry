@@ -49,8 +49,19 @@ step "Boot the Worker and probe it"
 # configuration check: that route verifies proof of work before it needs a
 # session, which makes it the only place a probe can prove the captcha is
 # actually being checked on workerd. Nothing here talks to GitHub.
+#
+# APP_URL is set for the same class of reason, and without it this step could not
+# pass. `wrangler.jsonc` binds APP_URL as `https://REPLACE_WITH_DEPLOYMENT_ORIGIN`,
+# and `configuredOrigin()` in router.ts refuses that placeholder on purpose (a
+# value that validates but is not an answer would come back as GitHub's
+# `redirect_uri_mismatch` instead of naming the real problem). So the proof-of-work
+# probe used to verify its solution, set both OAuth cookies, and then get a 400
+# "Configuration Missing" from the origin check one line later — a failure with
+# nothing to do with what the probe asserts. The value is any origin at all; this
+# one never receives a request, because nothing here talks to GitHub either.
 npx wrangler dev --port 8787 --ip 127.0.0.1 \
-  --var GITHUB_CLIENT_ID:Iv1.probeonly >/tmp/wrangler.log 2>&1 &
+  --var GITHUB_CLIENT_ID:Iv1.probeonly \
+  --var APP_URL:http://127.0.0.1:8787 >/tmp/wrangler.log 2>&1 &
 worker_pid=$!
 # Kill the runtime however this script exits, so a failed probe does not leave a
 # process holding the port.
