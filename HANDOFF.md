@@ -104,11 +104,11 @@ filter matching zero tests is a harness error, not a pass — so a count is part
 Nothing here is blocked on engineering. Steps 1–5 are credentials and configuration; step 6 is the
 one that makes discovery work.
 
-1. **Merge to the default branch.** Registry work is on `feat/registry-implementation`; `origin`
-   holds only `master`. **This is the highest-leverage action in either repository** — and not for
-   tidiness: `registry/v1/url.txt` and `registry/v1/packages.json` are the discovery files `finn`
-   fetches from GitHub raw, and raw URLs resolve against the **default branch**. Until this merges,
-   both 404 and `finn` has nothing to fall through to.
+1. **Merge to the default branch** — done, PR #3 (`22da728`, 2026-08-27). Registry work was
+   on `feat/registry-implementation`; the discovery files `finn` fetches from GitHub raw
+   (`registry/v1/url.txt`, `registry/v1/packages.json`) are on the default branch now, so the
+   pointer answers (comments-only, no URL line) instead of 404ing. Correction 2026-09-10; the
+   pre-merge wording above is history.
 2. **`wrangler d1 create`**, then put the real `database_id` into `wrangler.jsonc`.
 3. **Apply migrations remotely** — `drizzle/0000_registry_schema.sql`.
 4. **Create a GitHub OAuth app.** Sign-in asks for `user:email` only; the wider repository scope is
@@ -358,7 +358,7 @@ was paid for by a real false result in this project.
 
 | Repo | Branch | HEAD after this commit | Notes |
 |---|---|---|---|
-| `finn-registry` | `feat/registry-implementation` | `5567e17` | **Not merged to `master`**; `origin/master` is `a5ef515`. Merging is step 1 of §4. |
+| `finn-registry` | `master` | `22da728` (PR #3) | `feat/registry-implementation` (`5567e17`) merged 2026-08-27; the pre-merge row is history (corrected 2026-09-10). |
 | `finn` | `master` | `7c3b190` | Committed directly on `master`. `target/` is gitignored. |
 | `Fin` | `wave3-semantics` | `848fde1` | **Another agent is preparing this repo — do not touch it.** Fully pushed. Three CMake artifacts are staged as *deletions*, which is correct: they were committed from another machine carrying a `/mnt/c/...` path and are gitignored. |
 
@@ -370,8 +370,10 @@ was paid for by a real false result in this project.
 
 The registry works, is tested, and has never been deployed. The next three actions, in order:
 
-1. **Merge `feat/registry-implementation` to `master`** — without it the discovery files 404 and
-   `finn` cannot find the registry at all.
-2. **Answer §5.1** — does the registry get a GitHub identity of its own? Nothing can write a version
-   record until someone decides, and three of the CLI's asks are stuck behind it.
-3. **Deploy, then append one line to `registry/v1/url.txt`.** Do not put a placeholder there first.
+1. **Deploy, then append one line to `registry/v1/url.txt`.** Do not put a placeholder there first.
+   (The merge this item used to name is done — PR #3. Corrected 2026-09-10.)
+2. **Review and merge PR #4** — ADR-0007 answers §5.1 (the registry gets an inbound-only GitHub
+   identity; version records arrive on tag push). Nothing writes a version record until it lands.
+   (This item used to ask the question; the answer exists now, unmerged. Corrected 2026-09-10.)
+3. **Deploy prerequisites first** (issue #6: D1, OAuth app, secrets, `APP_URL`) — Deploy fails on
+   master until then, by design. (Unchanged; still step 3.)

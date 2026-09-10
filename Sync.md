@@ -151,6 +151,10 @@ assumes an integration test against a live host is planning against something th
 
 Branch: `feat/registry-implementation`. `master` is untouched.
 
+**Correction 2026-09-10:** the branch merged to `master` as PR #3 (`22da728`, 2026-08-27), so
+this line is history — the discovery files are on the default branch and the pointer answers.
+"Nothing is deployed" above still holds; only the branch state changed.
+
 ---
 
 ## 3. The seams — every place the two projects must agree
@@ -170,7 +174,7 @@ is what *we* owe.
 |---|---|
 | **finn will do** | tier 1 explicit override → tier 2 pointer file on GitHub raw → its own 24-hour cache of tier 2. **There is no tier 3:** `DEFAULT_REGISTRY` is `None` (`~/finn/src/discovery.rs:65`), decided after rev 6 proposed a compiled-in last-known-good. Package resolution: live API → fallback index in this repo → a source the user typed → `not_found`. |
 | **we must do** | publish and maintain **two files on the default branch**: `registry/v1/url.txt` (the pointer) and `registry/v1/packages.json` (stdlib + first-party libs, `schema: 1`). Nothing else in this repo currently produces either. |
-| **breaks how** | every one of those files is fetched at `https://raw.githubusercontent.com/M1778/finn-registry/HEAD/<path>`. **`HEAD` resolves to the default branch — and all of our work is on `feat/registry-implementation`.** Until it merges to `master`, both files 404, and with no tier 3 behind them finn has no address at all — which it reports as *no registry is known*, not as *package not found*. |
+| **breaks how** | every one of those files is fetched at `https://raw.githubusercontent.com/M1778/finn-registry/HEAD/<path>`. **`HEAD` resolves to the default branch — and all of our work is on `feat/registry-implementation`.** Until it merges to `master`, both files 404, and with no tier 3 behind them finn has no address at all — which it reports as *no registry is known*, not as *package not found*. **Correction 2026-09-10:** merged as PR #3 (`22da728`); the files are on the default branch and answer. The 404 reasoning is history; the tier table itself is unchanged. |
 | **also on us** | the index **must be generated from D1 by a script and a CI job**, not hand-maintained. It duplicates package→repo data that already lives in the database; a hand-edited copy becomes a second, wrong source of truth within a month. Stdlib entries are the exception — the stdlib is not in the register, so those are authored. |
 | **who decides** | the paths and the schema, and we should decide them *before* an agent hardcodes a string in each repo. This is the one literal that must match across two codebases. |
 
